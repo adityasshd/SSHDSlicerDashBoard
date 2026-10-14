@@ -1,5 +1,5 @@
 """Current review inventory: complete captures, bounded reuse, no disk fallback."""
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future
 from copy import deepcopy
 from datetime import datetime, timezone
 from math import isfinite
@@ -11,6 +11,7 @@ import pandas as pd
 from slicing_dashboard.management.periods import today_iso
 from slicing_dashboard.processing.daily_work import UPSTREAM
 from slicing_dashboard.processing.source_policy import SOURCE_TTL_SECONDS
+from slicing_dashboard.runtime import ReadExecutor as ThreadPoolExecutor
 
 STAGES = (('leader', 'Pending Leader'), ('auditor', 'Pending Auditor'), ('admin', 'Pending Admin'))
 _INITIALIZE = Lock()

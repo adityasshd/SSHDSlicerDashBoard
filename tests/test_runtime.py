@@ -36,6 +36,41 @@ def test_configured_serial_reads_do_not_construct_a_thread_pool(monkeypatch):
     pool.assert_not_called()
 
 
+def test_pending_review_remains_complete_without_worker_threads(monkeypatch):
+    from slicing_dashboard.processing.pending_review import fetch_items
+    monkeypatch.setenv('DASHBOARD_MAX_WORKERS', '1')
+    pool = MagicMock(side_effect=AssertionError('Host has no worker threads available'))
+    monkeypatch.setattr('slicing_dashboard.runtime.ThreadPoolExecutor', pool)
+    queues = {
+        'slice_submitted': [{'id': 1, 'slicer': 'Person', 'slicer_id': 7, 'duration_seconds': 61}],
+        'slice_pending_auditor_review': [{'id': 2, 'slicer': 'Person', 'slicer_id': 7, 'duration_seconds': 62}],
+        'slice_pending_admin_review': [{'id': 3, 'slicer': 'Person', 'slicer_id': 7, 'duration_seconds': 63}],
+    }
+    monkeypatch.setattr('slicing_dashboard.processing.current_queue.fetch_queue',
+                        lambda scraper, status: queues[status])
+    rows = fetch_items(MagicMock(is_authenticated=True), '2026-10-14')
+    assert len(rows) == 1
+    assert [rows[0][f'{stage}_review_duration_seconds'] for stage in ('leader', 'auditor', 'admin')] == [61, 62, 63]
+    pool.assert_not_called()
+
+
+def test_daily_offset_inventory_remains_complete_without_worker_threads(monkeypatch):
+    from slicing_dashboard.processing.daily_work_source import DailyWorkSource
+    monkeypatch.setenv('DASHBOARD_MAX_WORKERS', '1')
+    pool = MagicMock(side_effect=AssertionError('Host has no worker threads available'))
+    monkeypatch.setattr('slicing_dashboard.runtime.ThreadPoolExecutor', pool)
+    source = DailyWorkSource(MagicMock())
+
+    def page(number):
+        return {'total': 3, 'items': [{'id': number, 'slice_submitted_at': '2026-10-14T12:00:00'}],
+                'meta': {'total_capped': False, 'page': number, 'page_size': 1, 'has_more': number < 3}}
+
+    source.request = lambda path, body: page(body['page'])
+    tasks = source._parallel_inventory({'page_size': 1}, page(1))
+    assert [task['id'] for task in tasks] == [1, 2, 3]
+    pool.assert_not_called()
+
+
 def test_rejected_thread_start_keeps_every_read_available(monkeypatch):
     monkeypatch.setenv('DASHBOARD_MAX_WORKERS', '2')
     calls = []

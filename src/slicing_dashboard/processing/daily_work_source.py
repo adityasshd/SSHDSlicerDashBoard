@@ -1,5 +1,5 @@
 """Read-only, fully paginated primary API evidence for daily submissions."""
-from concurrent.futures import ThreadPoolExecutor
+from slicing_dashboard.runtime import ReadExecutor as ThreadPoolExecutor
 from datetime import datetime
 from threading import RLock
 from zoneinfo import ZoneInfo

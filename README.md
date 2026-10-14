@@ -125,6 +125,19 @@ report worker threads. Independent page callbacks remain available; reads can
 take longer when serialized. This reduces thread demand but does not increase
 the hosting account's quota or prove MongoDB connectivity.
 
+For a working live dashboard with missing periods, unmapped accounts, or gaps in
+the trend, verify the saved store separately. `.env` is loaded from the project
+root; existing cPanel environment variables override its values. `/api/storage-health`
+uses the same `Authorization: Bearer CRON_SECRET` protection as `/api/data-health`
+and returns configuration presence, an eight-second-bounded MongoDB ping,
+collection counts, and the retained daily date range. It does not return the URI,
+credentials, raw exception messages, or report rows, and does not write data or
+create indexes. It also reports when the environment's `MONGO_URI` differs from
+the file. A ready result confirms readable saved configuration/history; missing
+collections require checking the selected database or migration. A connection
+failure requires checking Atlas network access and the hosting server's outbound
+connectivity. See [MongoDB Atlas connection troubleshooting](https://www.mongodb.com/docs/atlas/troubleshoot-connection/).
+
 See [cPanel's Python Selector setup](https://support.cpanel.net/hc/en-us/articles/360057849753-How-to-register-an-application-with-Python-Selector)
 and [Python WSGI deployment documentation](https://docs.cpanel.net/knowledge-base/web-services/how-to-install-a-python-wsgi-application/).
 

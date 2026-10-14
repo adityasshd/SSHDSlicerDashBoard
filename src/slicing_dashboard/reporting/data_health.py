@@ -234,6 +234,19 @@ def register_data_health_routes(server, manager):
     server.add_url_rule('/api/data-health', 'data_health', lambda: response(), methods=['GET'])
     server.add_url_rule('/api/data-refresh', 'data_refresh', lambda: response(True), methods=['GET', 'POST'])
 
+    def storage_response():
+        if not authorized():
+            return jsonify(error='Unauthorized'), 401, {'Cache-Control': 'no-store'}
+        from slicing_dashboard.config import PROJECT_ROOT
+        from slicing_dashboard.reporting.storage_health import storage_health
+        try:
+            result = storage_health(manager.db, PROJECT_ROOT / '.env')
+        except Exception as error:
+            result = {'ok': False, 'state': 'diagnostic_failed', 'error_class': type(error).__name__}
+        return jsonify(result), 200 if result['ok'] else 503, {'Cache-Control': 'no-store'}
+
+    server.add_url_rule('/api/storage-health', 'storage_health', storage_response, methods=['GET'])
+
     def jobs_response(action):
         if not authorized():
             return jsonify(error='Unauthorized'), 401, {'Cache-Control': 'no-store'}
