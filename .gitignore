@@ -20,6 +20,7 @@ data/reports/
 
 # Logs
 logs/
+/passenger.log
 
 # Jupyter
 .ipynb_checkpoints/

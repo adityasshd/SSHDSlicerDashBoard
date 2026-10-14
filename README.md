@@ -50,9 +50,11 @@ and the project folder as the application root. The requirements target Linux x8
    `app.py`, and `passenger_wsgi.py`. Keep `.venv/` and `node_modules/` on your local machine.
 2. Use a domain/subdomain with the application URL at `/`; dashboard links assume
    the application is served at the domain root.
-3. Set **Application startup file** to `passenger_wsgi.py` and **Application entry
-   point** to `application`. Alternatively, use `app.py` as the startup file with
-   the same entry point; both expose the dashboard's Flask WSGI server.
+3. Set **Application startup file** to `app.py` and **Application entry point**
+   to `application`. The root wrapper exposes the dashboard's Flask WSGI server.
+   This avoids a hosting-generated `passenger_wsgi.py` wrapper targeting itself.
+   Hosts that load a custom WSGI file directly can also use the repository's
+   `passenger_wsgi.py`, which contains `from app import application`.
 4. Add `requirements.txt` to the configuration files and click **Run Pip Install**.
    Alternatively, activate the virtual environment using the command cPanel shows,
    then run:
@@ -97,6 +99,14 @@ an existing file. `.htaccess` stays Git-ignored so repository deployments do not
 overwrite the hosting configuration. Restoring these directives does not repair
 incorrect Selector cache ownership or document-root permissions; those still
 require the hosting provider if the same error persists.
+
+If the Passenger log repeats `imp.load_source('wsgi', 'passenger_wsgi.py')` until
+`RecursionError`, the server's wrapper is loading itself. Set the Selector startup
+file to `app.py`, keep the entry point `application`, and save. If the `.htaccess`
+file specifies `PassengerStartupFile`, it should also be `app.py`. Inspect the
+generated wrapper afterwards: it must load `app.py`, or simply import
+`from app import application`. Restart and inspect only the newly appended log
+entries; old tracebacks remain in the log after a successful repair.
 
 See [cPanel's Python Selector setup](https://support.cpanel.net/hc/en-us/articles/360057849753-How-to-register-an-application-with-Python-Selector)
 and [Python WSGI deployment documentation](https://docs.cpanel.net/knowledge-base/web-services/how-to-install-a-python-wsgi-application/).
