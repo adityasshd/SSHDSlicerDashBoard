@@ -1,0 +1,114 @@
+"""
+Shared theme constants, color maps, and formatting utilities.
+
+Used by all plot modules to ensure visual consistency.
+"""
+
+import plotly.graph_objects as go
+import plotly.io as pio
+import pandas as pd
+from functools import lru_cache
+from hashlib import sha256
+from math import isfinite, ceil, floor, log10
+
+# ── Consistent user color palette ────────────────────────────────────────────
+USER_COLORS = {
+    "Aditya": "#636EFA",
+    "Gurharleen": "#478754",
+    "Komal": "#EF553B",
+    "Priya": "#00CC96",
+    "Rajni": "#AB63FA",
+    "Ranjeeta": "#FFA15A",
+    "Riya": "#19D3F3",
+    "Sanddep": "#FF6692",
+    "Admin": "#B6E880",
+    "Test": "#FF97FF",
+    "Dep": "#FECB52",
+    "Akash": "#FECB52",
+    "Annotator": "#B6E880",
+    "Pardeep": "#FF97FF",
+    "Sheetal": "#A8B5E8",
+}
+
+
+def user_color(user: str) -> str:
+    """Keep a person's color stable when the directory or selection changes."""
+    if user in USER_COLORS:
+        return USER_COLORS[user]
+    hue = int.from_bytes(sha256(str(user).encode("utf-8")).digest()[:2], "big") % 360
+    return f"hsl({hue}, 65%, 60%)"
+
+# ── Compact chart height (px) used by all graphs ─────────────────────────────
+CHART_HEIGHT = 280
+
+
+@lru_cache(maxsize=2)
+def chart_template(is_dark: bool) -> go.layout.Template:
+    """Keep the theme defaults for the bar and scatter charts used here."""
+    template = pio.templates["plotly_dark" if is_dark else "plotly_white"].to_plotly_json()
+    template["data"] = {kind: values for kind, values in template.get("data", {}).items()
+                        if kind in ("bar", "scatter")}
+    # A Template object replaces defaults; a dict merges with the full template.
+    return go.layout.Template(template)
+
+
+def empty_fig() -> go.Figure:
+    """Return a dark, transparent empty figure — used as initial placeholder
+    so the browser doesn't flash white default plotly charts while data loads."""
+    fig = go.Figure()
+    fig.update_layout(
+        template=chart_template(True),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+        height=CHART_HEIGHT,
+        margin=dict(l=0, r=0, t=0, b=0),
+    )
+    fig.add_annotation(text='Loading…', x=.5, y=.5, xref='paper', yref='paper', showarrow=False)
+    return fig
+
+
+def format_seconds(seconds, *, compact=False):
+    """Format elapsed time without wrapping hours at 24 or inventing missing data."""
+    try:
+        value = float(seconds)
+        if not isfinite(value) or value < 0:
+            return 'Unavailable'
+    except (ValueError, TypeError, OverflowError):
+        return 'Unavailable'
+    seconds = int(floor(value + .5))
+    h = seconds // 3600
+    m = seconds % 3600 // 60
+    return f"{h:02d}:{m:02d}" if compact else f"{h:02d}:{m:02d}:{seconds % 60:02d}"
+
+
+def duration_ticks(lower, upper):
+    """Keep numeric hour coordinates while displaying elapsed-time axis ticks."""
+    lower, upper = max(0., float(lower)), float(upper)
+    if not isfinite(lower) or not isfinite(upper) or upper <= lower:
+        return [], []
+    span = upper - lower
+    unit = 1 / 3600 if span < 1 / 60 else 1 / 60 if span < 1 else 1
+    target = span / unit / 5
+    magnitude = 10 ** floor(log10(target))
+    step = next(scale * magnitude for scale in (1, 2, 5, 10) if scale * magnitude >= target) * unit
+    first = ceil(lower / step)
+    values = [(first + index) * step for index in range(7) if (first + index) * step <= upper]
+    return values, [format_seconds(value * 3600, compact=step * 3600 >= 60) for value in values]
+
+
+def theme_ctx(is_dark: bool) -> dict:
+    """Return a dict of theme-aware Plotly styling tokens.
+
+    Returns
+    -------
+    dict with keys: template, font_color, bg_color, hover_bg, hover_fg
+    """
+    return {
+        "template": chart_template(is_dark),
+        "font_color": "#e0e0e0" if is_dark else "#333333",
+        "bg_color": "rgba(0,0,0,0)",
+        "hover_bg": "#2a2a35" if is_dark else "#f0f0f0",
+        "hover_fg": "#ffffff" if is_dark else "#111111",
+    }

@@ -1,0 +1,256 @@
+"""
+KPI card builder — compact cards for the dashboard header.
+"""
+
+
+import dash_bootstrap_components as dbc
+import plotly.graph_objects as go
+from dash import dcc, html
+
+from slicing_dashboard.plots.theme import format_seconds
+
+
+def _make_kpi_card(
+    title: str,
+    value_str: str,
+    icon_class: str,
+    badge_text: str,
+    badge_color: str,
+    is_dark: bool,
+    sparkline_data: list | None,
+    *,
+    sparkline_shape: str = "spline",
+) -> html.Div:
+    """Build a single compact KPI card element."""
+    text_col = "#e0e0e0" if is_dark else "#333333"
+    icon_bg = "rgba(255,255,255,0.05)" if is_dark else "rgba(0,0,0,0.03)"
+
+    # Sparkline mini-chart
+    fig = go.Figure(
+        go.Scatter(
+            y=sparkline_data,
+            mode="lines",
+            line=dict(color=badge_color, width=2, shape=sparkline_shape),
+            connectgaps=False,
+            hoverinfo="skip",
+        )
+    )
+    fig.update_layout(
+        template="none",
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=22,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(showgrid=False, zeroline=False, visible=False),
+        yaxis=dict(showgrid=False, zeroline=False, visible=False),
+    )
+
+    return html.Div(
+        dbc.Card(
+            dbc.CardBody(
+                [
+                    # Icon + Value row
+                    html.Div(
+                        [
+                            html.Div(
+                                html.I(className=icon_class),
+                                style={
+                                    "fontSize": "1rem",
+                                    "color": text_col,
+                                    "backgroundColor": icon_bg,
+                                    "width": "28px",
+                                    "height": "28px",
+                                    "display": "flex",
+                                    "alignItems": "center",
+                                    "justifyContent": "center",
+                                    "borderRadius": "6px",
+                                    "flexShrink": "0",
+                                },
+                            ),
+                            html.Span(
+                                "—" if value_str is None else value_str,
+                                className="kpi-value",
+                                style={
+                                    "fontSize": "1.1rem",
+                                    "fontWeight": "700",
+                                    "color": text_col,
+                                    "letterSpacing": "-0.3px",
+                                    "marginLeft": "6px",
+                                    "whiteSpace": "nowrap",
+                                },
+                            ),
+                        ],
+                        style={"display": "flex", "alignItems": "center"},
+                    ),
+                    # Title
+                    html.Div(
+                        title,
+                        className="kpi-title",
+                        style={
+                            "fontSize": "0.65rem",
+                            "fontWeight": "700",
+                            "textTransform": "uppercase",
+                            "color": "#aaa",
+                            "marginTop": "3px",
+                            "marginBottom": "3px",
+                            "letterSpacing": "0.3px",
+                            "whiteSpace": "nowrap",
+                        },
+                    ),
+                    # Sparkline
+                    dcc.Graph(
+                        figure=fig,
+                        config={"displayModeBar": False},
+                        style={"height": "22px"},
+                    ) if sparkline_data is not None else None,
+                    # Badge
+                    html.Div(
+                        html.Span(
+                            badge_text,
+                            style={
+                                "backgroundColor": badge_color + "25",
+                                "color": badge_color,
+                                "fontSize": "0.58rem",
+                                "fontWeight": "600",
+                                "padding": "2px 5px",
+                                "borderRadius": "4px",
+                                "whiteSpace": "normal",
+                                "lineHeight": "1.3",
+                            },
+                        ),
+                        style={"marginTop": "3px"},
+                    ) if badge_text else None,
+                ],
+                className="p-2",
+            ),
+            className="h-100 shadow-sm",
+            style={
+                "backgroundColor": "#252530" if is_dark else "#ffffff",
+                "border": "1px solid "
+                + ("rgba(255,255,255,0.05)" if is_dark else "rgba(0,0,0,0.05)"),
+                "borderRadius": "10px",
+                "overflow": "hidden",
+            },
+        ),
+        className="kpi-card",
+    )
+
+
+def make_kpi_card(
+    title: str,
+    value_str: str | None,
+    icon_class: str = "bi bi-clock",
+    badge_text: str = "",
+    badge_color: str = "#38bdf8",
+    is_dark: bool = True,
+    sparkline_data: list | None = None,
+) -> html.Div:
+    """Reuse the dashboard card, showing only a supplied, real daily trend.
+
+    A missing value is shown as an em dash; a zero value remains zero. Report
+    callers may omit sparklines instead of inventing a trend from two totals.
+    """
+    return _make_kpi_card(
+        title, value_str, icon_class, badge_text, badge_color, is_dark,
+        sparkline_data,
+    )
+
+
+def _fmt_badge(pct: float) -> str:
+    return f"{pct:+.1f}% Vs Prev Period"
+
+
+def build_kpi_layout(kpis: dict, funnel_map: dict, is_dark: bool) -> list:
+    """Build the full KPI card row from summary data.
+
+    Parameters
+    ----------
+    kpis : dict from DataManager.get_summary_kpis()
+    funnel_map : dict keyed by funnel stage name
+    is_dark : bool for theme
+
+    Returns
+    -------
+    list of Dash components (children for the kpi-cards row)
+    """
+    assigned_val = float(
+        funnel_map.get("assigned", {}).get("duration_seconds", 0) or 0
+    )
+    rework_val = float(
+        funnel_map.get("rework", {}).get("duration_seconds", 0) or 0
+    )
+    total_assigned_dur = assigned_val + rework_val
+    pool_dur = kpis.get('assignable_duration')
+
+    total_pending_dur = float(kpis.get("total_pending_duration", 0) or 0)
+    leader_dur = float(kpis.get("leader_review_duration", 0) or 0)
+    auditor_dur = float(kpis.get("auditor_review_duration", 0) or 0)
+    admin_dur = float(kpis.get("admin_review_duration", 0) or 0)
+
+    cards = [
+        _make_kpi_card(
+            "Total Approved",
+            format_seconds(kpis["total_approved_duration"]),
+            "bi bi-check-circle",
+            _fmt_badge(kpis["approved_pct"]),
+            "#10B981" if kpis["approved_pct"] >= 0 else "#F43F5E",
+            is_dark,
+            None,
+        ),
+        _make_kpi_card(
+            "Assigned (Now)",
+            format_seconds(total_assigned_dur),
+            "bi bi-people",
+            f"Assigned: {format_seconds(assigned_val)} | Rework: {format_seconds(rework_val)}",
+            "#10B981",
+            is_dark,
+            None,
+        ),
+        _make_kpi_card(
+            "Unassigned Videos",
+            format_seconds(pool_dur),
+            "bi bi-inbox",
+            "Pool unavailable · Refresh to retry" if kpis.get('assignable_error') or pool_dur is None else
+            f"Currently assignable · {kpis.get('assignable_count', 0)} tasks",
+            "#06B6D4",
+            is_dark,
+            None,
+        ),
+        _make_kpi_card(
+            "Pending Review (Period)",
+            format_seconds(total_pending_dur),
+            "bi bi-clock",
+            f"Leader: {format_seconds(leader_dur)} | Auditor: {format_seconds(auditor_dur)} | Admin: {format_seconds(admin_dur)}",
+            "#F43F5E",
+            is_dark,
+            None,
+        ),
+        _make_kpi_card(
+            "Rework Submitted",
+            format_seconds(kpis["rework_duration"]),
+            "bi bi-arrow-repeat",
+            _fmt_badge(kpis["rework_pct"]),
+            "#10B981" if kpis["rework_pct"] >= 0 else "#F43F5E",
+            is_dark,
+            None,
+        ),
+        _make_kpi_card(
+            "Error Duration",
+            format_seconds(kpis["total_error_duration"]),
+            "bi bi-exclamation-triangle",
+            _fmt_badge(kpis["error_pct"]),
+            "#F43F5E" if kpis["error_pct"] >= 0 else "#10B981",
+            is_dark,
+            None,
+        ),
+        _make_kpi_card(
+            "Completed Tasks",
+            f"{kpis['completed_tasks']} / {kpis['total_tasks']}",
+            "bi bi-mortarboard",
+            _fmt_badge(kpis["completed_pct"]),
+            "#10B981" if kpis["completed_pct"] >= 0 else "#F43F5E",
+            is_dark,
+            None,
+        ),
+    ]
+    return cards

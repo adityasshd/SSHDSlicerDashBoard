@@ -1,0 +1,59 @@
+"""Daily video output, separated into fresh, same-day and older rework."""
+import plotly.graph_objects as go
+from slicing_dashboard.plots.guardrails import safe_chart, checked_frame, add_bar_total_labels
+from slicing_dashboard.plots.theme import CHART_HEIGHT, theme_ctx
+from slicing_dashboard.processing.daily_work import format_video_seconds as format_seconds
+
+
+@safe_chart
+def build_error_rework_chart(active_work_df, chart_date_label, is_dark):
+    active_work_df = checked_frame(active_work_df, ['User', 'New Work Duration', 'Total Work Duration'],
+        ['New Work Duration', 'Total Work Duration', 'Same-day Rework Duration', 'Old Rework Duration', 'Rework Duration'])
+    theme = theme_ctx(is_dark)
+    figure = go.Figure()
+    maximum = 1
+    if active_work_df.empty:
+        figure.add_annotation(text=f"No submissions recorded ({chart_date_label})", showarrow=False,
+                              font={"size": 14, "color": theme["font_color"]})
+    else:
+        rows = active_work_df.sort_values("Total Work Duration", ascending=False)
+        buckets = [("Fresh Work", "New Work Duration", "#38bdf8" if is_dark else "#0284c7")]
+        if "Same-day Rework Duration" in rows:
+            buckets += [("Same-day Rework", "Same-day Rework Duration", "#fbbf24" if is_dark else "#b45309"),
+                        ("Old Rework", "Old Rework Duration", "#f97316" if is_dark else "#c2410c")]
+        else:
+            buckets += [("Rework", "Rework Duration", "#f97316")]
+        total_seconds = rows['New Work Duration'] + rows.get('Same-day Rework Duration', rows.get('Rework Duration', 0))
+        total = total_seconds.apply(format_seconds)
+        for label, column, color in buckets:
+            durations = rows[column].apply(format_seconds)
+            bucket = {'New Work Duration': 'Fresh', 'Same-day Rework Duration': 'Same-day Rework',
+                      'Old Rework Duration': 'Old Rework', 'Rework Duration': 'Same-day Rework'}[column]
+            ids = []
+            for _, row in rows.iterrows():
+                scoped = row.get('Bucket IDs')
+                raw = str(row.get('IDs') or '')
+                ids.append(scoped.get(bucket, '') if isinstance(scoped, dict) else
+                           raw if len(raw.split(',')) == 1 else 'Unavailable in saved capture')
+            if column == 'Old Rework Duration':
+                figure.add_trace(go.Scatter(name='Old Rework (excluded)', x=rows['User'], y=rows[column] / 3600,
+                    mode='markers', marker={'color': color, 'size': 8, 'symbol': 'diamond'},
+                    customdata=list(zip(durations, total, ids)),
+                    hovertemplate='<b>%{x}</b><br>Old Rework<br>%{customdata[0]}<br>IDs: %{customdata[2]}<extra></extra>'))
+                continue
+            figure.add_trace(go.Bar(name=label, x=rows["User"], y=rows[column] / 3600, text=durations,
+                                   marker_color=color, customdata=list(zip(durations, total, ids)),
+                                   hovertemplate=f"<b>%{{x}}</b><br>{label}<br>%{{customdata[0]}}<br>IDs: %{{customdata[2]}}<extra></extra>"))
+        maximum = max(1, total_seconds.max() / 3600 * 1.2,
+                      rows['Old Rework Duration'].max() / 3600 * 1.2 if 'Old Rework Duration' in rows else 0)
+    figure.update_layout(
+        title=f"{chart_date_label} · Submitted Video Duration", barmode="stack",
+        template=theme["template"], plot_bgcolor=theme["bg_color"], paper_bgcolor=theme["bg_color"],
+        font={"family": "Inter, sans-serif", "size": 12, "color": theme["font_color"]},
+        height=CHART_HEIGHT, margin={"l": 40, "r": 15, "t": 55, "b": 35},
+        clickmode="event+select", legend={"orientation": "h", "y": 1.04, "x": 0},
+        yaxis={"title": "Video hours", "range": [0, maximum], "gridcolor": "rgba(128,128,128,.2)"},
+        xaxis={"showgrid": False, "automargin": True},
+    )
+    figure.update_traces(textposition="inside", textfont={"size": 10}, selector={'type': 'bar'})
+    return add_bar_total_labels(figure)

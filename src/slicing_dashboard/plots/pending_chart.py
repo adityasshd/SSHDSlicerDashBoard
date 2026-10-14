@@ -1,0 +1,108 @@
+"""
+Pending reviews stacked bar chart builder.
+"""
+
+import plotly.express as px
+import plotly.graph_objects as go
+from slicing_dashboard.plots.guardrails import safe_chart, checked_frame, state_figure, add_bar_total_labels
+
+from slicing_dashboard.plots.theme import (
+    CHART_HEIGHT,
+    format_seconds,
+    theme_ctx,
+)
+
+
+@safe_chart
+def build_pending_chart(pending_df, is_dark: bool) -> go.Figure:
+    """Build stacked bar chart of pending reviews by stage.
+
+    Parameters
+    ----------
+    pending_df : DataFrame filtered to pending stages, with columns
+                 'User', 'Stage', 'Duration', 'Count', and optionally 'IDs'.
+    is_dark : bool
+    """
+    t = theme_ctx(is_dark)
+    if pending_df is not None and pending_df.attrs.get('pending_error'):
+        return state_figure('Pending review unavailable. Refresh to retry.', is_dark)
+    pending_df = checked_frame(pending_df, ['User', 'Stage', 'Duration', 'Count'], ['Duration', 'Count'])
+    if not pending_df.empty:
+        pending_df = pending_df[(pending_df['Duration'] > 0) | (pending_df['Count'] > 0)]
+
+    if pending_df.empty:
+        return state_figure('No pending reviews queued.', is_dark)
+
+    df = pending_df.copy()
+    df["Formatted Duration"] = df["Duration"].apply(format_seconds)
+    if "Count" not in df.columns:
+        df["Count"] = 0
+    if "IDs" not in df.columns:
+        df["IDs"] = ""
+
+    max_hours = (df.groupby("User")["Duration"].sum() / 3600).max() if not df.empty else 0
+    max_range = max_hours * 1.15 if (max_hours and max_hours > 0) else 1
+
+    fig = px.bar(
+        df,
+        x="User",
+        y=df["Duration"] / 3600,
+        color="Stage",
+        title="Pending Reviews · Current Queue (Hours)",
+        color_discrete_map={
+            "Pending Leader": "#F59E0B",
+            "Pending Auditor": "#8B5CF6",
+            "Pending Admin": "#06B6D4",
+        },
+        text="Formatted Duration",
+        barmode="stack",
+        custom_data=["Formatted Duration", "Stage", "Count", "IDs"],
+    )
+    fig.update_layout(
+        template=t["template"],
+        plot_bgcolor=t["bg_color"],
+        paper_bgcolor=t["bg_color"],
+        font=dict(family="Inter, sans-serif", size=12, color=t["font_color"]),
+        title_font=dict(size=15, weight="bold"),
+        height=CHART_HEIGHT,
+        margin=dict(l=40, r=15, t=45, b=55),
+        bargap=0.35,
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.18,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=11),
+        ),
+        hoverlabel=dict(
+            bgcolor=t["hover_bg"],
+            font_color=t["hover_fg"],
+            font_size=13,
+        ),
+        yaxis_title="Hours",
+        yaxis=dict(
+            range=[0, max_range],
+            automargin=True,
+            showgrid=True,
+            gridcolor="rgba(128,128,128,0.2)",
+            zeroline=False,
+            tickfont=dict(size=11),
+        ),
+        xaxis_title="",
+        xaxis=dict(automargin=True, tickfont=dict(size=12, weight="bold")),
+    )
+    fig.update_traces(
+        textposition="inside",
+        textfont=dict(size=10, weight="bold"),
+        constraintext="none",
+        hovertemplate=(
+            "<b>%{x}</b><br>"
+            "%{customdata[1]}<br>"
+            "%{customdata[0]}<br>"
+            "IDs: %{customdata[3]}<extra></extra>"
+        ),
+    )
+    fig.update_layout(meta={'captured_at': pending_df.attrs.get('captured_at')})
+    return add_bar_total_labels(fig)
