@@ -1,13 +1,4 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/ipsutpvq3gsk/dashboard_app
-    - /bin/cp -R app.py $DEPLOYPATH/
-    - /bin/cp -R passenger_wsgi.py $DEPLOYPATH/
-    - /bin/cp -R requirements.txt $DEPLOYPATH/
-    - /bin/cp -R pyproject.toml $DEPLOYPATH/
-    - /bin/cp -R src/ $DEPLOYPATH/src/
-    - /bin/cp -R api/ $DEPLOYPATH/api/
-    - /bin/cp -R config/ $DEPLOYPATH/config/
-    - /bin/cp -R scripts/ $DEPLOYPATH/scripts/
-    - touch $DEPLOYPATH/tmp/restart.txt
+    - touch /home/ipsutpvq3gsk/dashboard_app/tmp/restart.txt
