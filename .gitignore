@@ -68,3 +68,6 @@ uv.lock
 
 # temp
 data/temp_img/
+
+# cPanel managed (server-side only, never commit)
+.htaccess
