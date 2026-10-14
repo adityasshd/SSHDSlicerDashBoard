@@ -1,7 +1,7 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/YOUR_CPANEL_USERNAME/scorer
+    - export DEPLOYPATH=/home/ipsutpvq3gsk/dashboard_app
     - /bin/cp -R app.py $DEPLOYPATH/
     - /bin/cp -R passenger_wsgi.py $DEPLOYPATH/
     - /bin/cp -R requirements.txt $DEPLOYPATH/
@@ -11,4 +11,3 @@ deployment:
     - /bin/cp -R config/ $DEPLOYPATH/config/
     - /bin/cp -R scripts/ $DEPLOYPATH/scripts/
     - touch $DEPLOYPATH/tmp/restart.txt
-
