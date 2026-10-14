@@ -15,7 +15,8 @@ from slicing_dashboard.scraper.http_scraper import HTTPScraper
 
 
 from collections import defaultdict
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future
+from slicing_dashboard.runtime import ReadExecutor as ThreadPoolExecutor
 from threading import Lock, RLock
 from time import perf_counter
 from typing import Any

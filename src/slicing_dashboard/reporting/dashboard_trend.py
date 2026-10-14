@@ -1,5 +1,5 @@
 """Bounded saved-history reads, independent of interactive task/workflow captures."""
-from concurrent.futures import ThreadPoolExecutor
+from slicing_dashboard.runtime import ReadExecutor as ThreadPoolExecutor
 from copy import deepcopy
 from datetime import date, timedelta
 import json

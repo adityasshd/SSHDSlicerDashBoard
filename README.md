@@ -108,6 +108,23 @@ generated wrapper afterwards: it must load `app.py`, or simply import
 `from app import application`. Restart and inspect only the newly appended log
 entries; old tracebacks remain in the log after a successful repair.
 
+If startup fails with `OpenBLAS blas_thread_init: pthread_create failed` while
+importing pandas/NumPy, the hosting account cannot allocate the requested numeric
+library threads. The package sets single-thread defaults before numeric imports.
+Explicit hosting environment values are respected, so set `OPENBLAS_NUM_THREADS`,
+`OMP_NUM_THREADS`, `MKL_NUM_THREADS`, and `NUMEXPR_NUM_THREADS` to `1` in Setup Python
+App if the account already supplies higher values, then save and restart. These
+variables must be available before Python imports NumPy; `.env` alone is loaded
+too late to override an already initialized BLAS runtime. See
+[OpenBLAS runtime variables](https://www.openmathlib.org/OpenBLAS/docs/runtime_variables/).
+
+Report/API read pools now default to at most two workers and continue inline if
+the operating system rejects a thread start. For a constrained cPanel account,
+set `DASHBOARD_MAX_WORKERS=1` to perform those reads sequentially without creating
+report worker threads. Independent page callbacks remain available; reads can
+take longer when serialized. This reduces thread demand but does not increase
+the hosting account's quota or prove MongoDB connectivity.
+
 See [cPanel's Python Selector setup](https://support.cpanel.net/hc/en-us/articles/360057849753-How-to-register-an-application-with-Python-Selector)
 and [Python WSGI deployment documentation](https://docs.cpanel.net/knowledge-base/web-services/how-to-install-a-python-wsgi-application/).
 

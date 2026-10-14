@@ -361,7 +361,7 @@ def get_daily_report_data(manager, report_date=None, force_refresh=False) -> dic
     previous_date = (date.fromisoformat(report_date) - timedelta(days=1)).isoformat()
     yesterday_date = (date.fromisoformat(current_date) - timedelta(days=1)).isoformat()
     with manager.refresh_scope():
-        from concurrent.futures import ThreadPoolExecutor
+        from slicing_dashboard.runtime import ReadExecutor as ThreadPoolExecutor
         from time import perf_counter
         from slicing_dashboard.reporting.dashboard_trend import work_records
         from slicing_dashboard.reporting.chart_projections import remap_daily_chart

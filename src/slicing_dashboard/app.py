@@ -4,12 +4,16 @@ Slicing Performance & Settlement Dashboard — Main Application.
 Layout and callbacks. All chart/table builders live in the plots/ package.
 """
 
+from slicing_dashboard.runtime import configure_numeric_threads, ReadExecutor as ThreadPoolExecutor
+
+# Also cover running this file directly, before Dash imports numeric libraries.
+configure_numeric_threads()
+
 import dash
 import sys
 import dash_bootstrap_components as dbc
 import pandas as pd
 from functools import wraps
-from concurrent.futures import ThreadPoolExecutor
 from dash import ALL, Input, Output, State, dcc, html
 from datetime import datetime, timedelta
 from pathlib import Path
