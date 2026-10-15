@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from slicing_dashboard.management.periods import today_iso
 from slicing_dashboard.processing.workflow_history import WorkflowStore
+from slicing_dashboard.runtime import viewer_mode
 
 
 SOURCES = ('configuration', 'daily', 'overview', 'efficiency', 'assignable_pool', 'assignments',
@@ -34,7 +35,7 @@ class DataHealth:
             raise ConnectionError('Configured capture storage unavailable')
         if store is None and os.getenv('VERCEL') and not configured:
             raise ConnectionError('Scheduled captures require shared database storage')
-        self.store = store or WorkflowStore(database)
+        self.store = store or WorkflowStore(database, initialize=not viewer_mode())
         # Isolate different source accounts sharing the same database.
         identity = f'{manager.scraper._base_url}:{settings.admin_username}'
         self.instance = 'data-health:' + hashlib.sha256(identity.encode()).hexdigest()[:24]
@@ -55,7 +56,8 @@ class DataHealth:
             except (KeyError, TypeError, ValueError):
                 recent = False
             version_matches = item.get('processor_version') == PROCESSOR_VERSION
-            build = os.getenv('VERCEL_GIT_COMMIT_SHA')
+            # The viewer and external collector are deployed from different repos.
+            build = None if viewer_mode() else os.getenv('VERCEL_GIT_COMMIT_SHA')
             version_matches = version_matches and (not build or item.get('build') == build)
             item['state'] = ('unavailable' if not item.get('last_success_at') else
                              'failed' if item.get('error') else 'fresh' if recent and version_matches else 'stale')
@@ -142,6 +144,8 @@ class DataHealth:
         A database lease prevents concurrent scheduled/manual jobs. If a job is
         killed, health ages out and the lease expires; a later run resumes.
         """
+        if viewer_mode():
+            raise RuntimeError('Collection is disabled in the dashboard viewer')
         selected = tuple(selected) if selected is not None else None
         refresh_configuration = selected is not None and 'configuration' in selected
         selected = selected if selected is not None else SOURCES
@@ -215,13 +219,20 @@ def register_data_health_routes(server, manager):
     def response(refresh=False):
         if not authorized():
             return jsonify(error='Unauthorized'), 401, {'Cache-Control': 'no-store'}
+        if refresh and viewer_mode():
+            return jsonify(error='CollectionDisabled', role='viewer'), 410, {'Cache-Control': 'no-store'}
         try:
             service = DataHealth(manager)
             selected = request.args.get('sources')
             result = service.refresh(selected.split(',') if selected is not None else None) if refresh else service.health()
             if not refresh:
                 from slicing_dashboard.reporting.refresh_jobs import RefreshJobs
-                result['job'] = RefreshJobs(service).current()
+                jobs = RefreshJobs(service)
+                if viewer_mode():
+                    pointer = service.store.get(jobs.pointer)
+                    result['job'] = service.store.get(pointer['job_id']) if pointer else None
+                else:
+                    result['job'] = jobs.current()
                 if result['job'] and result['job']['errors']:
                     result['ok'] = False
             status = 409 if result.get('busy') else 200 if result.get('refresh_ok', result['ok']) else 503
@@ -250,6 +261,8 @@ def register_data_health_routes(server, manager):
     def jobs_response(action):
         if not authorized():
             return jsonify(error='Unauthorized'), 401, {'Cache-Control': 'no-store'}
+        if viewer_mode():
+            return jsonify(error='CollectionDisabled', role='viewer'), 410, {'Cache-Control': 'no-store'}
         try:
             from slicing_dashboard.reporting.refresh_jobs import RefreshJobs
             jobs = RefreshJobs(DataHealth(manager))

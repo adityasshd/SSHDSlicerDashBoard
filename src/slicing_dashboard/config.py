@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     dashboard_url: str = Field(default='http://120.79.192.226/',
         description='Base URL of the video slicing dashboard')
     admin_username: str = Field(..., env='ADMIN_USERNAME')
-    admin_password: str = Field(..., env='ADMIN_PASSWORD')
+    admin_password: str = Field(default='', env='ADMIN_PASSWORD')
     slicer_admin_password: str | None = Field(None, env='SLICER_ADMIN_PASSWORD')
     database_url: str | None = Field(None, env='DATABASE_URL')
     mongo_uri: str | None = Field(None, env='MONGO_URI')

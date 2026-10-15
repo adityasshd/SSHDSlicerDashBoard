@@ -4,7 +4,7 @@ Slicing Performance & Settlement Dashboard — Main Application.
 Layout and callbacks. All chart/table builders live in the plots/ package.
 """
 
-from slicing_dashboard.runtime import configure_numeric_threads, ReadExecutor as ThreadPoolExecutor
+from slicing_dashboard.runtime import configure_numeric_threads, ReadExecutor as ThreadPoolExecutor, viewer_mode, polling_disabled
 
 # Also cover running this file directly, before Dash imports numeric libraries.
 configure_numeric_threads()
@@ -69,6 +69,8 @@ app = dash.Dash(
 
 from slicing_dashboard.reporting.data_health import register_data_health_routes
 register_data_health_routes(app.server, dm)
+from slicing_dashboard.viewer import register_viewer_routes
+register_viewer_routes(app.server, dm)
 register_duration_table_callbacks(app)
 
 def _available_user_names(snapshot, mappings):
@@ -245,11 +247,13 @@ app.layout = html.Div(
                 dcc.Store(id="server-status-store", data=dm.get_server_status()),
                 dcc.Interval(
                     id="auto-refresh-interval",
+                    disabled=polling_disabled(),
                     interval=5 * 60 * 1000,  # 5 minutes
                     n_intervals=0,
                 ),
                 dcc.Interval(
                     id="heartbeat-interval",
+                    disabled=polling_disabled(),
                     interval=30 * 1000,  # 30 seconds
                     n_intervals=0,
                 ),
@@ -843,6 +847,9 @@ def quick_filters(btn_today, dropdown_val, n_intervals, selected_start, selected
 
 
 def _build_status_badge(status: dict):
+    if viewer_mode():
+        return html.Span('Saved reports', className='badge bg-secondary me-2',
+                         title='Data is collected separately. Refresh reloads saved reports.')
     is_live = status.get("is_live", True)
     using_snap = status.get("is_using_snapshot", False)
     if is_live and not using_snap:
@@ -885,6 +892,9 @@ def _build_status_badge(status: dict):
 
 
 def _build_status_banner(status: dict):
+    if viewer_mode():
+        message = getattr(dm, '_viewer_storage_error', None)
+        return dbc.Alert(message, color='warning', className='py-1 small') if message else None
     is_live = status.get("is_live", True)
     using_snap = status.get("is_using_snapshot", False)
     if not is_live or using_snap:

@@ -1,5 +1,11 @@
 # Data capture and recovery on Vercel Hobby
 
+> Historical combined-deployment notes. The current `main` branch is a Vercel
+> **viewer only**: it has no Vercel cron or Node dispatcher deployment, and its
+> capture/job endpoints return 410 after authentication. Do not configure the
+> five-minute jobs below against Vercel. Run collection on an external worker
+> sharing the database. See [current deployment setup](vercel-deployment.md).
+
 Plots should use prepared data from their owning source, rather than fetch or
 repair values inside a chart builder. `processing/source_policy.py` centralizes
 the 60-second reuse policy and serializes identical source queries. Daily charts,

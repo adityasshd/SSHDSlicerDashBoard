@@ -1,6 +1,7 @@
 """Small shared layout helpers that preserve the existing dashboard."""
 from dash import dcc, html
 import dash_bootstrap_components as dbc
+from slicing_dashboard.runtime import polling_disabled
 
 
 def chart_graph(**kwargs):
@@ -77,7 +78,8 @@ def add_reporting_shell(existing_layout, today, users=()):
         dcc.Store(id='workflow-sync-store'),
         dcc.Store(id='workflow-read-change'),
         dcc.Store(id='workflow-notice-seen', storage_type='session'),
-        dcc.Interval(id='workflow-notification-interval', interval=60 * 1000, n_intervals=0),
+        dcc.Interval(id='workflow-notification-interval', interval=60 * 1000, n_intervals=0,
+                     disabled=polling_disabled()),
         html.Div(id='workflow-toast-container', className='workflow-toast-container',
                  **{'aria-live': 'polite', 'aria-atomic': 'false'}),
         dbc.Modal([dbc.ModalHeader(dbc.ModalTitle('Shared Team Notifications')),

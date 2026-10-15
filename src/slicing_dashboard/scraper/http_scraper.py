@@ -18,6 +18,7 @@ import httpx
 from slicing_dashboard.config import RAW_DIR, Settings
 from slicing_dashboard.models.schemas import ExtractionResult, RawRecord
 from slicing_dashboard.scraper.base import BaseScraper
+from slicing_dashboard.runtime import reject_viewer_upstream
 
 
 class HTTPScraper(BaseScraper):
@@ -34,6 +35,7 @@ class HTTPScraper(BaseScraper):
     def __init__(self, settings: (Settings | None)=None) ->None:
         super().__init__(settings)
         self._client = httpx.Client(timeout=self.settings.request_timeout,
+            event_hooks={'request': [reject_viewer_upstream]},
             follow_redirects=True, headers={'User-Agent':
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
             })

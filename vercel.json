@@ -1,25 +1,10 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "api/index.py",
-      "use": "@vercel/python",
-      "config": { "excludeFiles": "node_modules/**" }
-    },
-    {
-      "src": "api/data-refresh.mjs",
-      "use": "@vercel/node"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "flask",
+  "functions": {
+    "app.py": {
+      "maxDuration": 30,
+      "excludeFiles": "{node_modules/**,tests/**,scripts/**,docs/**,data/**,logs/**,api/**,server/**,.venv/**,**/*.log,build_vercel.py}"
     }
-  ],
-  "routes": [
-    {
-      "src": "/api/data-refresh/?$",
-      "dest": "api/data-refresh.mjs"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "api/index.py"
-    }
-  ],
-  "crons": [{ "path": "/api/data-refresh", "schedule": "0 19 * * *" }]
+  }
 }

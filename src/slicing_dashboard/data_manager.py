@@ -16,7 +16,7 @@ from slicing_dashboard.scraper.http_scraper import HTTPScraper
 
 from collections import defaultdict
 from concurrent.futures import Future
-from slicing_dashboard.runtime import ReadExecutor as ThreadPoolExecutor
+from slicing_dashboard.runtime import ReadExecutor as ThreadPoolExecutor, viewer_mode
 from threading import Lock, RLock
 from time import perf_counter
 from typing import Any
@@ -275,12 +275,15 @@ class DataManager:
         self._load_snapshot()
         self._load_batch_returns()
         self._load_batches_master()
+        if viewer_mode():
+            self._viewer_checked_at = perf_counter()
+            self._viewer_storage_error = None if self._snapshot_payload else 'No saved dashboard capture is available.'
 
     def _load_snapshot(self) -> None:
         """Load cached snapshot from disk or database if available."""
         snap = None
         # 1. Try loading from local file or /tmp (Vercel)
-        for p in [self._snapshot_path, Path("/tmp/snapshot_cache.json")]:
+        for p in ([] if viewer_mode() else [self._snapshot_path, Path("/tmp/snapshot_cache.json")]):
             if p.exists():
                 try:
                     with open(p, "r", encoding="utf-8") as f:
@@ -315,6 +318,8 @@ class DataManager:
 
     def _save_snapshot(self) -> None:
         """Persist current cache to disk and database as snapshot."""
+        if viewer_mode():
+            return  # Only collectors may publish a source snapshot.
         scope = _REFRESH_SCOPE.get()
         if scope is not None and scope['manager'] is self:
             scope['snapshot_dirty'] = True
@@ -373,6 +378,8 @@ class DataManager:
 
     def check_server_heartbeat(self, timeout: float = 2.5) -> bool:
         """Probe the server using the official /api/auth/heartbeat endpoint."""
+        if viewer_mode():
+            return False
         now = datetime.now()
         if (
             self._last_heartbeat_check is not None
@@ -412,6 +419,10 @@ class DataManager:
 
     def get_server_status(self) -> dict:
         """Return a status dictionary for dashboard UI."""
+        if viewer_mode():
+            return {'is_live': False, 'is_using_snapshot': True,
+                    'last_sync_time': self._snapshot_payload.get('last_sync_time', 'Unknown'),
+                    'error': getattr(self, '_viewer_storage_error', None), 'role': 'viewer'}
         return {
             "is_live": self.server_is_live,
             "is_using_snapshot": self.is_using_snapshot,
@@ -882,7 +893,7 @@ class DataManager:
     def _load_batch_returns(self) -> None:
         """Load persistent batch return history from JSON dataset or snapshot cache."""
         records = []
-        for p in [self._batch_returns_path, Path("/tmp/batch_returns_history.json")]:
+        for p in ([] if viewer_mode() else [self._batch_returns_path, Path("/tmp/batch_returns_history.json")]):
             if p.exists():
                 try:
                     with open(p, "r", encoding="utf-8") as f:
@@ -1020,7 +1031,7 @@ class DataManager:
     def _load_batches_master(self) -> None:
         """Load persistent batches master ledger from JSON dataset or snapshot cache."""
         records = []
-        for p in [self._batches_master_path, Path("/tmp/batches_master.json")]:
+        for p in ([] if viewer_mode() else [self._batches_master_path, Path("/tmp/batches_master.json")]):
             if p.exists():
                 try:
                     with open(p, "r", encoding="utf-8") as f:
@@ -1328,6 +1339,8 @@ class DataManager:
 
     def get_daily_report_data(self, report_date=None, force_refresh=False):
         """Share a recent capture across routes; explicit Refresh always reads live."""
+        if viewer_mode():
+            return self.get_saved_daily_report_data(report_date, force_refresh)
         from copy import deepcopy
         from datetime import timezone
         from slicing_dashboard.management.periods import today_iso
@@ -1406,7 +1419,8 @@ class DataManager:
     def get_workflow_data(self, force_refresh=False):
         self.refresh_shared_configuration()
         history = self._workflow_history()
-        history.sync(force=force_refresh)
+        if not viewer_mode():
+            history.sync(force=force_refresh)
         checkpoints = [row for row in history.store.records('checkpoint') if row.get('instance') == history.instance]
         _, synthetic = history.store.query('event', history.instance, {'provenance': 'Synthetic'})
         _, total = history.store.query('event', history.instance)
@@ -1422,6 +1436,8 @@ class DataManager:
 
     def get_approval_data(self, start_date, end_date, refresh_batches=False, force_refresh=False):
         """Read saved approvals even while the independent workflow scan fails."""
+        if viewer_mode():
+            refresh_batches = False
         from slicing_dashboard.reporting.approval_reports import approval_records
         from slicing_dashboard.reporting.approval_funnel import cohort_records
         try:
@@ -1458,6 +1474,8 @@ class DataManager:
                     'error': 'ApprovalReadFailed'}
 
     def get_efficiency_history(self, start_date, end_date, force_refresh=False, capture_live=True):
+        if viewer_mode():
+            capture_live = False
         from slicing_dashboard.reporting.efficiency_history import EfficiencyHistory
         from slicing_dashboard.management.periods import today_iso
         key = (start_date, end_date)

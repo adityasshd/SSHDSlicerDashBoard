@@ -1,5 +1,18 @@
 # SSHDSlicerDashBoard
 
+## Vercel deployment (saved-data dashboard)
+
+The `main` branch deploys a Python **3.12** Flask/Dash viewer on Vercel. It reads
+retained reports from MongoDB/PostgreSQL and does not scrape the upstream API.
+Collection must run separately, writing the same database. Refresh reloads saved
+data; background browser polling and Vercel cron/dispatcher functions are disabled.
+Missing captures remain unavailable until the collector publishes them.
+
+Import the repository with **Flask**, root directory **`./`**, and the default
+build/install settings. See [Vercel setup and compute limits](docs/vercel-deployment.md)
+for environment variables, storage requirements, and verification. Dependency
+versions are recorded in `uv.lock`; matplotlib is an optional analysis dependency.
+
 Video Slicing Dashboard — a scraping, data processing, and reporting system built with Dash.
 
 ## Features
@@ -42,7 +55,11 @@ On Windows, the local runner keeps debug tools enabled but disables automatic pr
 
 ## cPanel deployment
 
-Use **Setup Python App** with **Python 3.11** (including 3.11.16), production mode,
+These instructions describe the older combined application. The separate cPanel
+collector is a subsequent deployment task; do not schedule requests to the Vercel
+viewer to perform collection.
+
+Use **Setup Python App** with **Python 3.12**, production mode,
 and the project folder as the application root. The requirements target Linux x86_64 with glibc
 2.28 or newer (for example, CloudLinux 8/9).
 
@@ -177,11 +194,11 @@ Daily Report renders recorded figures first, then verifies today/yesterday in a 
 
 Daily Report reconciles yesterday against the current submission source on entry and Refresh, retaining already observed tasks and adding later submissions. An afternoon capture no longer becomes the final daily total at midnight. Work and comparison charts use the same per-person totals and include the same zero-output roster.
 
-Scheduled capture and recovery for all plot sources is available through the
-protected `/api/data-refresh` and `/api/data-health` endpoints or
-`slicing-dashboard data-refresh`. Vercel Hobby has a daily fallback capture;
-frequent independent captures require an external scheduler. See the
-[deployment and recovery setup](docs/data-recovery.md) before enabling it.
+Collection code remains available for an external worker through
+`slicing-dashboard data-refresh`. On Vercel, capture/job endpoints return **410**
+after authentication; `/api/data-health` and `/api/storage-health` remain protected
+diagnostics. The old combined deployment is documented in
+[data recovery](docs/data-recovery.md); its Vercel scheduler instructions are historical.
 
 Current assignable video duration and task count come only from
 `/api/slice/pool-inventory`, summing the normal and urgent unassigned pools. A

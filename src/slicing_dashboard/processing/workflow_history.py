@@ -443,13 +443,17 @@ class WorkflowHistory:
 
     def __init__(self, manager, store=None):
         self.manager = manager
-        self.store = store or WorkflowStore(manager.db)
+        from slicing_dashboard.runtime import viewer_mode
+        self.store = store or WorkflowStore(manager.db, initialize=not viewer_mode())
         self.reader = DailyWorkSource(manager.scraper)
         self.instance = hashlib.sha256(manager.scraper._base_url.rstrip("/").encode()).hexdigest()[:16]
         self.last_sync = None
         self.operator_id = None
 
     def sync(self, force=False):
+        from slicing_dashboard.runtime import viewer_mode
+        if viewer_mode():
+            return
         from uuid import uuid4
         with LOCK:
             if not force and self.last_sync and (datetime.now(timezone.utc) - self.last_sync).total_seconds() < 300:

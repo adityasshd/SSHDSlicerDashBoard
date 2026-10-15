@@ -11,6 +11,7 @@ from slicing_dashboard.processing.daily_work_source import DailyWorkSource
 from slicing_dashboard.processing.source_policy import SOURCE_TTL_SECONDS, serialized_source
 from slicing_dashboard.reporting.dashboard_trend import bounded_read
 from slicing_dashboard.reporting.user_reports import _validate_date
+from slicing_dashboard.runtime import viewer_mode
 
 
 def worked_batch_ids(tasks, inventory, batches):
@@ -56,6 +57,17 @@ def worked_batch_ids(tasks, inventory, batches):
 @serialized_source
 def get_user_batches_data(manager, report_date, force_refresh=False):
     _validate_date(report_date)
+    if viewer_mode():
+        saved = manager._snapshot_payload.get('user_batches', {}).get(report_date)
+        if saved and saved.get('report_date') == report_date:
+            return deepcopy(saved)
+        # The master ledger proves assignments only, not every worked-on batch.
+        batches = [dict(row, report_scope='Assigned')
+                   for row in manager._batches_master_cache.values()
+                   if row.get('batch_date') == report_date]
+        return {'report_date': report_date, 'available': bool(batches), 'batches': batches,
+                'work_available': False, 'captured_at': manager.last_sync_time,
+                'error': None if batches else 'SavedBatchCaptureUnavailable'}
     cache = getattr(manager, '_user_batches_cache', {})
     entry = cache.get(report_date)
     if entry and not force_refresh and perf_counter() - entry[0] < SOURCE_TTL_SECONDS:

@@ -13,6 +13,7 @@ from slicing_dashboard.plots import (
     build_assigned_chart, build_pending_chart,
 )
 from slicing_dashboard.plots.guardrails import state_figure
+from slicing_dashboard.runtime import viewer_mode
 
 GRAPH_IDS = {'completion': 'individual-chart', 'rework': 'rework-ratio-chart',
              'assigned': 'assigned-chart', 'pending': 'pending-chart'}
@@ -34,8 +35,12 @@ def choose_packet(request, saved, live):
     if live and live.get('available'):
         return live, f"Captured {live['captured_at']}"
     if saved and saved.get('available'):
+        if viewer_mode():
+            return saved, f"Saved {saved['captured_at']}"
         state = 'Latest check failed' if live else 'Checking latest data'
         return saved, f"Saved {saved['captured_at']} · {state}"
+    if viewer_mode():
+        return None, 'No saved capture for this range. Waiting for the data collector.'
     return None, 'Latest data unavailable. Refresh to retry.' if live else 'Loading latest data…'
 
 
@@ -106,6 +111,8 @@ def _register_panel(app, manager, roster, kind):
     @app.callback(Output(f'dashboard-live-{kind}', 'data'),
                   Input(f'dashboard-ready-{kind}', 'data'), State(request_store, 'data'))
     def capture(ready, request):
+        if viewer_mode():
+            raise dash.exceptions.PreventUpdate
         if not request or not matching_packet(request, ready):
             raise dash.exceptions.PreventUpdate
         packet = capture_panel(manager, kind, request['start'], request['end'],
@@ -126,7 +133,8 @@ def _register_panel(app, manager, roster, kind):
         # Start this panel's live read only after its saved/loading response.
         # Otherwise a fast live response can be overwritten by a slower first
         # paint from a different callback, leaving the selected range stale.
-        start_capture = dash.no_update if matching_packet(request, ready) else {'request_id': request['id']}
+        start_capture = (dash.no_update if viewer_mode() or matching_packet(request, ready)
+                         else {'request_id': request['id']})
         painted = {'request_id': request['id'], 'id': uuid4().hex}
         return *render_panel(kind, request, saved, live, selected, theme, roster), start_capture, painted
 

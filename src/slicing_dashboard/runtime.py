@@ -4,6 +4,22 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from threading import Lock
 
 
+def viewer_mode():
+    """Vercel always serves retained evidence; collectors run outside Vercel."""
+    return bool(os.getenv('VERCEL')) or os.getenv('DASHBOARD_ROLE', '').lower() == 'viewer'
+
+
+def polling_disabled():
+    # Browser tabs must not keep compute running unattended on Vercel.
+    return viewer_mode()
+
+
+def reject_viewer_upstream(request):
+    """HTTPX request hook: a missed UI guard must never start an upstream scan."""
+    if viewer_mode():
+        raise RuntimeError('Upstream collection is disabled in the dashboard viewer')
+
+
 def configure_numeric_threads():
     """Set defaults before NumPy or libraries importing it initialize BLAS."""
     for name in ('OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS',

@@ -5,6 +5,7 @@ from math import isfinite
 
 from slicing_dashboard.reporting.dashboard_reports import EXCLUDED_NAMES
 from slicing_dashboard.processing.source_policy import SOURCE_TTL_SECONDS, serialized_source
+from slicing_dashboard.runtime import viewer_mode
 
 
 def _number(value, *, count=False):
@@ -76,7 +77,7 @@ def completed_work_for_period(manager, start, end, force_refresh=False, *, persi
     else:
         saved = None
     error = None
-    if force_refresh or not recent:
+    if not viewer_mode() and (force_refresh or not recent):
         try:
             if not manager.scraper.is_authenticated and not manager.scraper.login():
                 raise ConnectionError('Login failed')
@@ -104,4 +105,4 @@ def completed_work_for_period(manager, start, end, force_refresh=False, *, persi
     except (KeyError, TypeError, ValueError, AttributeError):
         return {**empty, 'error': 'InvalidSavedCapture'}
     return {**empty, 'rows': deepcopy(list(totals.values())), 'available': True,
-            'captured_at': saved.get('captured_at'), 'is_snapshot': error is not None, 'error': error}
+            'captured_at': saved.get('captured_at'), 'is_snapshot': viewer_mode() or error is not None, 'error': error}

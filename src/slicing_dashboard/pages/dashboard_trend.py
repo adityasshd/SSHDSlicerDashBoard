@@ -5,6 +5,7 @@ import dash
 from dash import Input, Output, State, dcc
 
 from slicing_dashboard.reporting.dashboard_reports import date_range
+from slicing_dashboard.runtime import viewer_mode
 
 
 def trend_stores():
@@ -46,7 +47,7 @@ def register_dashboard_trend(app, manager, render, roster=None):
         figure, note = render(display, users, theme, pathname)
         request_id = (data or {}).get('request_id')
         request = dash.no_update
-        if request_id and not data.get('validation_error'):
+        if request_id and not data.get('validation_error') and not viewer_mode():
             if not matching_live(data, live):
                 note += ' Checking latest completion and approval statuses…'
             if not ready or ready.get('request_id') != request_id:
@@ -57,6 +58,8 @@ def register_dashboard_trend(app, manager, render, roster=None):
     @app.callback(Output('dashboard-trend-live', 'data'),
                   Input('dashboard-trend-ready', 'data'), State('dashboard-trend-store', 'data'))
     def capture(ready, data):
+        if viewer_mode():
+            raise dash.exceptions.PreventUpdate
         if not matching_live(data, ready):
             raise dash.exceptions.PreventUpdate
         efficiency = manager.get_efficiency_history(ready['start'], ready['end'],

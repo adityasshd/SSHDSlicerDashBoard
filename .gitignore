@@ -8,6 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+.venv-vercel/
 node_modules/
 
 # Environment variables (credentials)
@@ -61,8 +62,8 @@ test_db.py
 test_lifetime.py
 test_match.py
 
-# uv lock (large, regenerated from pyproject.toml)
-uv.lock
+# Generated CDN assets (build_vercel.py)
+/public/assets/
 
 # pytest cache
 .pytest_cache/

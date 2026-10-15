@@ -16,6 +16,7 @@ from typing import Any
 import pandas as pd
 
 from slicing_dashboard.processing.daily_work import EXCLUDED, format_video_seconds, instant
+from slicing_dashboard.runtime import viewer_mode
 
 
 BUCKETS = ("Fresh", "Same-day Rework", "Old Rework")
@@ -343,7 +344,7 @@ def get_saved_daily_report_data(manager, report_date=None, force_refresh=False) 
         'history': history, 'users': report_users(getattr(manager, 'user_mapping', {}),
             getattr(manager, '_snapshot_payload', {}), history,
             list(getattr(manager, 'user_mapping_full', {}).values())),
-        'saved_only': True, 'refresh_pending': report_date in (today_iso(),
+        'saved_only': True, 'refresh_pending': not viewer_mode() and report_date in (today_iso(),
             (date.fromisoformat(today_iso()) - timedelta(days=1)).isoformat())})
     manager._saved_daily_report_cache = {key: (perf_counter(), deepcopy(payload))}
     return payload
