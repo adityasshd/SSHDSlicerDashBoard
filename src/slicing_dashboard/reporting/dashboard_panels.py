@@ -18,7 +18,8 @@ FRAME_COLUMNS = {
     'pending': ('User', 'Stage', 'Duration', 'Count', 'IDs'),
     'assigned': ('User', 'Stage', 'Duration', 'Count', 'IDs', 'ID', 'AssignedDate', 'DaysAssigned',
                  'AssignmentDateBasis', 'ReturnedDate', 'DaysReturned'),
-    'rework': ('User', 'Completion State', 'Total Batches', 'No Rework', '1 Rework', '2 Reworks', '3 Reworks',
+    'rework': ('User', 'Completion State', 'Total Batches', 'No Rework', '1 Rework', '2 Reworks', '3+ Reworks',
+               '3+ Return Count', 'Tier Duration (hrs)', '3 Reworks',
                '4 Reworks', '5+ Reworks', '5+ Return Count', 'Reworked Once', 'Reworked Twice+',
                'Total Duration (hrs)', 'Avg Batch Duration (hrs)', 'Tier IDs'),
 }
@@ -35,6 +36,8 @@ def panel_key(manager, kind, start, end):
     identity = [manager.scraper._base_url, manager.settings.admin_username]
     if kind == 'assigned':
         identity.append('return-date-v1')
+    if kind == 'pending':
+        identity.append('recovered-task-timing-v1')
     mapping = [manager.user_mapping, getattr(manager, 'user_mapping_full', {}),
                sorted(getattr(manager, 'exempt_ids', set()))]
     return sha256(json.dumps([VERSION, kind, scope, identity, mapping], sort_keys=True).encode()).hexdigest()
@@ -64,7 +67,8 @@ def frame_payload(frame, kind):
     from slicing_dashboard.plots.guardrails import checked_frame
     required = (['User', 'Completed Duration'] if kind == 'completion' else
                 ['User', 'Total Batches'] if kind == 'rework' else ['User', 'Stage', 'Duration'])
-    labels = {'User', 'Stage', 'IDs', 'ID', 'AssignedDate', 'ReturnedDate', 'AssignmentDateBasis', 'Tier IDs', 'Completion State'}
+    labels = {'User', 'Stage', 'IDs', 'ID', 'AssignedDate', 'ReturnedDate', 'AssignmentDateBasis',
+              'Tier IDs', 'Tier Duration (hrs)', 'Completion State'}
     columns = [column for column in FRAME_COLUMNS[kind] if column in frame]
     frame = checked_frame(frame, required, [column for column in columns if column not in labels])
     frame = frame[columns]

@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import time
 import logging
+import os
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -87,7 +88,10 @@ def dashboard(*args, **kwargs):
     complete = pd.DataFrame([{'User': user, 'Completed Duration': range_seconds} for user in people()])
     ratios = pd.DataFrame([{'User': user, 'Completion State': 'Completed', 'Total Batches': span if state.get('range_sensitive') else 2,
                             'No Rework': max(0, span - 1) if state.get('range_sensitive') else 1,
-                            '1 Rework': 1} for user in people()])
+                            '1 Rework': 1, '3+ Reworks': 0, '3+ Return Count': 0,
+                            'Tier Duration (hrs)': {'No Rework': seconds() / 3600, '1 Rework': seconds() / 7200,
+                                                    '2 Reworks': 0, '3+ Reworks': 0}}
+                           for user in people()])
     assigned = pd.DataFrame([{'User': user, 'Stage': 'New Assigned', 'Duration': seconds(), 'Count': 1,
                              'ID': user, 'AssignedDate': '2026-10-06'} for user in people()])
     if state['mode'] == 'failure':
@@ -121,6 +125,18 @@ manager.get_detailed_pending_assigned_df.side_effect = lambda *args, **kwargs: d
 
 def rework_panel(*args, **kwargs):
     time.sleep(state.get('rework_delay', 0))
+    if state['mode'] == 'tiers':
+        from slicing_dashboard.processing.batch_ratios import batch_ratios
+        batches = [dict(batch_id=f'{user}-{index}', username=f'account-{index}',
+                        batch_date='2026-10-01', status='batch_completed',
+                        total_duration_seconds=hours * 3600)
+                   for user in people() for index, hours in enumerate([1, 2, 3, 4, 5, 6])]
+        events = [dict(event_id=f'{user}-{index}-{attempt}', batch_id=f'{user}-{index}',
+                       returned_at='2026-10-02T03:00:00Z')
+                  for user in people() for index, count in enumerate([0, 1, 2, 3, 4, 7])
+                  for attempt in range(count)]
+        return batch_ratios(batches, events, '2026-10-01', '2026-10-06',
+                            lambda batch: batch['batch_id'].rsplit('-', 1)[0])
     return dashboard(*args, **kwargs)[3]
 
 
@@ -191,6 +207,21 @@ def trend_report(report_date=None, force_refresh=False, start_date=None):
                              for offset in range((end - start).days + 1)]
         result.update(range_start=start_date, range_end=report_date, report_date=report_date,
                       today=result['history'][-1])
+    pattern = state.get('trend_pattern')
+    if pattern:
+        for index, day in enumerate(result['history']):
+            available = (index % 7 != 3 if pattern == 'varied' else
+                         index == len(result['history']) - 1 if pattern == 'single' else False)
+            day['metadata']['available'] = available
+            for row in day['rows']:
+                value = 0 if index % 9 == 0 else ((index * 7) % 13 + 1) * 1800
+                row['Total Duration'] = value
+                row['New Videos (First Time)'] = value
+    if not state.get('trend_completion'):
+        result['efficiency_history'] = [
+            {'date': day['date'], 'metadata': deepcopy(day['metadata']),
+             'rows': [{'User': row['User'], 'completed_duration_seconds': row['Total Duration']}
+                      for row in day['rows']]} for day in result['history']]
     return result
 
 
@@ -227,6 +258,13 @@ def completion_trend(*args, **kwargs):
 
 
 manager.get_efficiency_history.side_effect = completion_trend
+
+# Replay a retained trend packet without contacting the real API or database.
+if os.environ.get('DASHBOARD_QA_TREND_FILE'):
+    import json
+    retained_trend = json.loads(Path(os.environ['DASHBOARD_QA_TREND_FILE']).read_text(encoding='utf-8'))
+    manager.get_dashboard_trend_data.side_effect = lambda *args, **kwargs: deepcopy(retained_trend)
+    manager.get_efficiency_history.side_effect = lambda *args, **kwargs: deepcopy(retained_trend.get('efficiency_history', []))
 
 def user_report(*args, **kwargs):
     time.sleep(state.get('user_report_delay', 0))
@@ -302,4 +340,5 @@ def status():
 
 if __name__ == '__main__':
     logging.getLogger('werkzeug').setLevel(logging.ERROR)
-    app.run(host='127.0.0.1', port=8059, debug=False)
+    print(f'Synthetic preview process: {os.getpid()}', flush=True)
+    app.run(host='127.0.0.1', port=int(os.environ.get('DASHBOARD_QA_PORT', '8059')), debug=False)

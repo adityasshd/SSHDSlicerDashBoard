@@ -17,6 +17,7 @@ from slicing_dashboard.reporting.dashboard_reports import (
 
 
 def layout_daily_report(today):
+    from slicing_dashboard.pages.status_report import status_slot
     return html.Div([
         html.Div([
             html.Div([
@@ -34,6 +35,7 @@ def layout_daily_report(today):
         dcc.Store(id="daily-date-follows-today", data=True),
         dcc.Store(id="daily-live-request"),
         dcc.Store(id="daily-live-store"),
+        status_slot('daily'),
         dcc.Loading([
             dcc.Store(id="daily-report-store"),
             html.Div(id="daily-report-content", children=html.P("Loading daily report…", className="text-secondary")),
@@ -55,10 +57,17 @@ def _day_label(value, report_date, previous=False):
         return str(value or "Selected day")
 
 
-def _day_notice(day):
+def _day_notice(day, data=None):
     metadata = (day or {}).get("metadata", {})
     if not metadata.get("available"):
         message = "Daily submissions could not be loaded. Retry Refresh." if metadata.get("error") else "No verified history is available for this date."
+        if data:
+            days = list((data.get('days') or {}).values()) or data.get('history', [])
+            recorded = [item['date'] for item in days if _available(item)]
+            if recorded:
+                message += f" Latest recorded submission day: {max(recorded)}."
+            if data.get('saved_only') and not data.get('refresh_pending'):
+                message += " Refresh loads saved reports. Available daily status above provides current metrics; the source does not expose the submission history needed for this breakdown."
         return dbc.Alert(message, color="warning", className="py-2 small")
     if metadata.get("is_snapshot") or metadata.get("error"):
         return dbc.Alert(f"Showing saved submissions from {metadata.get('captured_at', 'an earlier capture')}. Refresh could not be verified.",
@@ -187,7 +196,7 @@ def build_daily_report_content(data, is_dark=True):
                             "Recorded daily submissions",
                             className="daily-period-chip")], className="daily-overview-heading"),
         html.Div(kpis, className="daily-metrics-grid"),
-        html.Div(_day_notice(today), className="report-status", **{"aria-live": "polite"}),
+        html.Div(_day_notice(today, data), className="report-status", **{"aria-live": "polite"}),
         html.Div([
             report_section(f"{current_label}'s Work" if current_label == "Today" else f"Work · {current_label}",
                            chart_graph(id="daily-work-chart", figure=work, config={"displayModeBar": False, "responsive": True}),

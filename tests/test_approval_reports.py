@@ -17,6 +17,10 @@ def fixture():
         {'User': 'Riya', 'Total Duration': 1800, 'Total Tasks': 1},
     ])
     data['history'][-2]['metadata']['available'] = True
+    data['efficiency_history'] = [
+        {'date': day['date'], 'metadata': day['metadata'],
+         'rows': [{'User': row['User'], 'completed_duration_seconds': row['Total Duration']}
+                  for row in day['rows']]} for day in data['history']]
     return data
 
 
@@ -45,11 +49,32 @@ def test_chart_gaps_units_themes_and_approval_labels():
         assert figure.data[0].y[-2] == 0
         assert figure.data[0].y[0] is None
         assert all(not trace.connectgaps for trace in figure.data)
-        assert all(trace.fill == 'tozeroy' for trace in figure.data)
-        assert all('unavailable' in trace.name for trace in figure.data[1:])
-        assert all(all(value is None for value in trace.y) for trace in figure.data[1:])
+        assert all(trace.fill == 'tozeroy' for trace in figure.data[:4])
+        assert all('unavailable' in trace.name for trace in figure.data[1:4])
+        assert all(all(value is None for value in trace.y) for trace in figure.data[1:4])
+        assert figure.data[-1].name == 'New submissions'
+        assert figure.data[-1].fill == 'none'
         assert '01:30:00' == figure.data[0].customdata[-1]
         figure.to_json()
+
+
+def test_new_submission_series_preserves_person_filters_missing_days_and_zero():
+    data = report_fixture(rows=[
+        {'User': 'Priya', 'Total Duration': 3600, 'New Videos (First Time)': 2400,
+         'Same-day Rework': 1200, 'Old Rework': 600},
+        {'User': 'Riya', 'Total Duration': 1800, 'New Videos (First Time)': 1800},
+    ])
+    data['history'][-2]['metadata']['available'] = True
+    report = prepare_approval_trend(data, ['Priya'])
+    assert report['rows'][-1]['total_seconds'] == 3600
+    assert report['rows'][-1]['new_seconds'] == 2400
+    assert report['rows'][-2]['new_seconds'] == 0
+    assert report['rows'][0]['new_seconds'] is None
+    assert report['latest_submission_date'] == '2026-10-06'
+    figure = build_approval_trend_chart(report)
+    new = next(trace for trace in figure.data if trace.name == 'New submissions')
+    assert list(new.y)[-2:] == [0, 2400 / 3600]
+    assert new.y[0] is None and new.connectgaps is False
 
 
 def test_dashboard_cleanup_retains_reports_and_management():
@@ -57,6 +82,9 @@ def test_dashboard_cleanup_retains_reports_and_management():
     by_id = {getattr(node, 'id', None): node for node in components(namespace['app'].layout)}
     assert 'error-rework-chart' not in by_id
     assert 'approval-trend-chart' in by_id
+    assert 'approval-outcomes-chart' not in by_id
+    assert by_id['main-container'].className == 'theme-dark'
+    assert by_id['theme-toggle'].n_clicks == 0
     assert 'daily-report-page' in by_id and 'user-report-page' in by_id
     assert 'tabs' not in by_id and 'tabs-content' not in by_id
     assert 'settings-page' in by_id
@@ -75,7 +103,7 @@ def test_trend_rendering_is_pure_and_route_scoped():
         for theme in (0, 1):
             figure, note = namespace['render_dashboard_trend'](fixture(), selection, theme, '/')
             assert figure.data[0].y[-1] == (1 if len(selection) == 1 else 1.5)
-            assert '2 of 30 days' in note and 'Approval history unavailable' in note
+            assert '2 of 30 source days' in note and 'Missing dates remain gaps' in note
     manager.get_daily_report_data.assert_not_called()
     manager.get_todays_work_df.assert_not_called()
     with pytest.raises(dash.exceptions.PreventUpdate):
@@ -107,8 +135,12 @@ def test_persisted_batch_stages_supply_filtered_area_series_and_honest_gaps():
     namespace, manager = application_namespace()
     figure, note = namespace['render_dashboard_trend'](fixture(), None, 0, '/', {'approvals': payload})
     assert all('unavailable' not in trace.name for trace in figure.data)
-    assert figure.data[1].y[-2] == 1
-    assert 'estimate' in note
+    assert len(figure.data) == 1
+    assert figure.data[0].name == 'Completed video'
+    assert figure.data[0].line.shape == 'spline'
+    # Detailed approval evidence remains available to report consumers.
+    assert build_approval_trend_chart(report).data[1].y[-2] == 1
+    assert 'estimate' in report['approval_status']
     manager.get_workflow_data.assert_not_called()
 
 

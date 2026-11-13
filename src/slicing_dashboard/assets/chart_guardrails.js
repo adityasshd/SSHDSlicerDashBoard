@@ -68,28 +68,98 @@
         window.Plotly.relayout(plot, update);
     }
     function hideTooltip() { if (tooltip) tooltip.hidden = true; }
+    function styleBars(plot) {
+        const traces = (plot._fullData || []).filter(trace => trace.type === 'bar' && trace.visible === true);
+        if (!traces.length || !window.Plotly) return;
+        const horizontal = traces[0].orientation === 'h';
+        const axis = plot._fullLayout?.[horizontal ? 'yaxis' : 'xaxis'];
+        if (!axis?._length || !axis.range) return;
+        const range = axis.range.map(value => axis.type === 'date' ? Date.parse(value) : Number(value));
+        const span = Math.abs(range[1] - range[0]);
+        if (!Number.isFinite(span) || !span) return;
+        const maxPixels = horizontal ? 18 : 24;
+        let width = maxPixels * span / axis._length;
+        if (axis.type === 'category') {
+            const overlaps = new Map();
+            if (plot._fullLayout.barmode === 'group') {
+                traces.forEach(trace => Array.from(new Set(trace[horizontal ? 'y' : 'x'] || [])).forEach(category =>
+                    overlaps.set(category, (overlaps.get(category) || 0) + 1)));
+            }
+            const groups = Math.max(1, ...overlaps.values());
+            width = Math.min(width, .55 / groups);
+        }
+        const changed = traces.filter(trace => typeof trace.width !== 'number' || Math.abs(trace.width - width) > width * .005);
+        if (changed.length) {
+            window.Plotly.restyle(plot, {width}, changed.map(trace => trace.index));
+            return;
+        }
+        // Clip the outside of the whole stack to a capsule. Internal stage joins
+        // stay square, while the baseline and the far end share the same radius.
+        const svgNS = 'http://www.w3.org/2000/svg';
+        const defs = plot.querySelector('defs');
+        if (!defs) return;
+        defs.querySelector('[data-dashboard-capsules]')?.remove();
+        const container = document.createElementNS(svgNS, 'g');
+        container.setAttribute('data-dashboard-capsules', 'true');
+        defs.appendChild(container);
+        const groups = new Map();
+        plot.querySelectorAll('.barlayer .point path').forEach(path => {
+            const box = path.getBBox();
+            if (!box.width || !box.height) return;
+            const center = horizontal ? box.y + box.height / 2 : box.x + box.width / 2;
+            const key = Math.round(center * 100);
+            const group = groups.get(key) || {paths: [], left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity};
+            group.paths.push(path);
+            group.left = Math.min(group.left, box.x); group.top = Math.min(group.top, box.y);
+            group.right = Math.max(group.right, box.x + box.width); group.bottom = Math.max(group.bottom, box.y + box.height);
+            groups.set(key, group);
+        });
+        let index = 0;
+        groups.forEach(group => {
+            const id = `dashboard-capsule-${plot._fullLayout._uid}-${index++}`;
+            const clip = document.createElementNS(svgNS, 'clipPath');
+            clip.setAttribute('id', id); clip.setAttribute('clipPathUnits', 'userSpaceOnUse');
+            const rect = document.createElementNS(svgNS, 'rect');
+            const w = group.right - group.left, h = group.bottom - group.top;
+            for (const [key, value] of Object.entries({x: group.left, y: group.top, width: w, height: h, rx: Math.min(w, h) / 2}))
+                rect.setAttribute(key, String(value));
+            clip.appendChild(rect); container.appendChild(clip);
+            group.paths.forEach(path => {
+                path.setAttribute('clip-path', `url(#${id})`);
+                path.style.shapeRendering = 'geometricPrecision';
+            });
+        });
+    }
     function update(plot, graph) {
         const frame = graph.closest('.chart-frame');
         if (!frame || !plot.data) return;
         const traces = plot._fullData || plot.data;
         const horizontal = new Set();
-        const vertical = new Set();
         traces.forEach(trace => {
             if (trace.type !== 'bar') return;
             if (trace.orientation !== 'h' && plot._fullLayout?.xaxis?.type === 'date') return;
-            const target = trace.orientation === 'h' ? horizontal : vertical;
+            if (trace.orientation !== 'h') return;
             Array.from((trace.orientation === 'h' ? trace.y : trace.x) || []).forEach(value => {
-                if (typeof value === 'string') target.add(value);
+                if (typeof value === 'string') horizontal.add(value);
             });
         });
         if (!graph.dataset.baseHeight) graph.dataset.baseHeight = String(parseFloat(graph.style.height) || 340);
-        const height = Math.max(Number(graph.dataset.baseHeight), horizontal.size * 34 + 160);
-        const viewport = frame.querySelector('.chart-viewport');
-        const width = vertical.size > 14 ? Math.max(viewport.clientWidth, vertical.size * 38 + 90) : 0;
-        const nextWidth = width ? width + 'px' : '100%';
+        const legend = plot._fullLayout?.legend;
+        const items = traces.filter(trace => trace.showlegend !== false && trace.name).length;
+        const horizontalLegend = plot._fullLayout?.showlegend && legend?.orientation === 'h' && items;
+        // Reserve real space for wrapped legends as the card narrows. Keep the
+        // plotting area stable instead of clipping the legend into a tiny box.
+        const columns = Math.max(1, Math.floor((plot._fullLayout?._size?.w || frame.clientWidth - 80) / 150));
+        const bottom = horizontalLegend ? Math.max(100, Math.min(390, Math.ceil(items / columns) * 32 + 50)) : 0;
+        const extra = horizontalLegend ? bottom - 100 : 0;
+        const height = Math.max(Number(graph.dataset.baseHeight) + extra, horizontal.size * 34 + 160 + extra);
         // The shared ResizeObserver handles changed dimensions once.
         if (graph.style.height !== height + 'px') graph.style.height = height + 'px';
-        if (graph.style.width !== nextWidth) graph.style.width = nextWidth;
+        if (graph.style.width !== '100%') graph.style.width = '100%';
+        if (horizontalLegend && window.Plotly &&
+            (plot.layout.margin?.b !== bottom || plot.layout.legend?.maxheight !== bottom - 24)) {
+            window.Plotly.relayout(plot, {'margin.b': bottom, 'legend.maxheight': bottom - 24});
+        }
     }
     function watch(root = document) {
         const plots = root.matches?.('.js-plotly-plot') ? [root] :
@@ -100,6 +170,7 @@
             if (!graph) return;
             bound.add(plot);
             plot.on('plotly_afterplot', () => update(plot, graph));
+            plot.on('plotly_afterplot', () => styleBars(plot));
             plot.on('plotly_restyle', () => refreshHourLabels(plot));
             plot.on('plotly_relayout', event => {
                 const coordinate = plot.layout.meta?.duration_axis_orientation;
@@ -135,6 +206,7 @@
                 });
             });
             update(plot, graph);
+            styleBars(plot);
         });
     }
     function start() {

@@ -48,7 +48,7 @@ def build_pending_chart(pending_df, is_dark: bool) -> go.Figure:
         x="User",
         y=df["Duration"] / 3600,
         color="Stage",
-        title="Pending Reviews · Current Queue (Hours)",
+        title="Pending reviews · current queue",
         color_discrete_map={
             "Pending Leader": "#F59E0B",
             "Pending Auditor": "#8B5CF6",
@@ -94,7 +94,7 @@ def build_pending_chart(pending_df, is_dark: bool) -> go.Figure:
         xaxis=dict(automargin=True, tickfont=dict(size=12, weight="bold")),
     )
     fig.update_traces(
-        textposition="inside",
+        textposition="none",
         textfont=dict(size=10, weight="bold"),
         constraintext="none",
         hovertemplate=(

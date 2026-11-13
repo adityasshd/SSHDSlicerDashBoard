@@ -1,219 +1,133 @@
-"""
-Return-weighted rework ratio 100% stacked bar chart builder.
-"""
+﻿"""Return-weighted rework stacks with tier-specific duration and account evidence."""
+from html import escape
 
 import pandas as pd
 import plotly.graph_objects as go
-from html import escape
-from slicing_dashboard.plots.guardrails import safe_chart, checked_frame
 
-from slicing_dashboard.plots.theme import (
-    CHART_HEIGHT,
-    theme_ctx,
-    format_seconds,
-)
+from slicing_dashboard.plots.guardrails import safe_chart, checked_frame, finite_number, state_figure
+from slicing_dashboard.plots.theme import CHART_HEIGHT, theme_ctx, format_seconds
+
+TIERS = ('No Rework', '1 Rework', '2 Reworks', '3+ Reworks')
+LEGACY_UPPER = ('3 Reworks', '4 Reworks', '5+ Reworks')
+
+
+def _tier_hours(row, sources, count):
+    """Older captures lack tier durations; never allocate the person's total by count."""
+    if not count:
+        return 0.
+    durations = row.get('Tier Duration (hrs)')
+    if not isinstance(durations, dict):
+        return None
+    values = [finite_number(durations.get(tier)) for tier in sources if row.get(tier, 0)]
+    return sum(values) if values and all(value is not None for value in values) else None
+
+
+def _tier_ids(row, sources):
+    scoped = row.get('Tier IDs')
+    if not isinstance(scoped, dict):
+        return set()
+    return {account.strip() for tier in sources for account in str(scoped.get(tier) or '').split(',')
+            if account.strip()}
+
+
+def _prepare_stacks(frame):
+    """Fold legacy six-tier captures and completion states without losing exact return weights."""
+    combined = {}
+    for row in frame.to_dict('records'):
+        counts = [row.get('No Rework', 0), row.get('1 Rework', row.get('Reworked Once', 0)),
+                  row.get('2 Reworks', row.get('Reworked Twice+', 0))]
+        sources = [[tier] for tier in TIERS[:3]]
+        if '3+ Reworks' in row:
+            upper = row['3+ Reworks']
+            upper_weight = row.get('3+ Return Count', upper * 3)
+            sources.append(['3+ Reworks'])
+        else:
+            upper = sum(row.get(tier, 0) for tier in LEGACY_UPPER)
+            five = row.get('5+ Reworks', 0)
+            five_weight = row.get('5+ Return Count', five * 5)
+            if five_weight < five * 5 or (five == 0 and five_weight != 0):
+                raise ValueError('Invalid return count for the legacy 5+ rework tier')
+            upper_weight = row.get('3 Reworks', 0) * 3 + row.get('4 Reworks', 0) * 4 + five_weight
+            sources.append(list(LEGACY_UPPER))
+        counts.append(upper)
+        if any(value != int(value) for value in counts) or sum(counts) != row['Total Batches']:
+            raise ValueError('Rework tiers do not match submitted batch totals')
+        if upper_weight < upper * 3 or (upper == 0 and upper_weight != 0) or upper_weight != int(upper_weight):
+            raise ValueError('Invalid return count for the 3+ rework tier')
+        weights = [counts[0], counts[1], counts[2] * 2, upper_weight]
+        result = combined.setdefault(row['User'], {'counts': [0] * 4, 'weights': [0] * 4,
+            'hours': [0.] * 4, 'ids': [set() for _ in TIERS], 'total': 0})
+        result['total'] += row['Total Batches']
+        for index, (count, weight, scoped) in enumerate(zip(counts, weights, sources)):
+            result['counts'][index] += count
+            result['weights'][index] += weight
+            hours = _tier_hours(row, scoped, count)
+            result['hours'][index] = (result['hours'][index] + hours
+                                    if result['hours'][index] is not None and hours is not None else None)
+            result['ids'][index].update(_tier_ids(row, scoped))
+    return combined
 
 
 @safe_chart
-def build_rework_ratio_chart(
-    ratio_df: pd.DataFrame,
-    start_date: str,
-    is_dark: bool,
-    effective_users: list | None = None,
-    is_filtering: bool = False,
-) -> go.Figure:
-    """Build a 100% stack weighted by returns, with no rework weighted as one.
+def build_rework_ratio_chart(ratio_df: pd.DataFrame, start_date: str, is_dark: bool,
+                             effective_users: list | None = None,
+                             is_filtering: bool = False) -> go.Figure:
+    """Four weighted tiers; each hover reports only that stack's actual video hours.
 
-    Parameters
-    ----------
-    ratio_df : DataFrame with 'User', rework tier counts and 'Total Batches'.
-        Optional '5+ Return Count' preserves exact weights above five returns;
-        older data without it uses a multiplier of five for that grouped tier.
-    start_date : str used in the title
-    is_dark : bool
-    effective_users : list of selected users (or None for all)
-    is_filtering : bool whether user filtering is active
+    Batch duration counts once in its tier. Return counts still determine the
+    percentage weights. Legacy captures without scoped durations show Unavailable.
     """
-    t = theme_ctx(is_dark)
-    ratio_df = checked_frame(ratio_df, ['User', 'Total Batches'],
-        ['Total Batches', 'No Rework', '1 Rework', '2 Reworks', '3 Reworks', '4 Reworks', '5+ Reworks', '5+ Return Count',
-         'Reworked Once', 'Reworked Twice+', 'Total Duration (hrs)', 'Avg Batch Duration (hrs)'])
-    fig = go.Figure()
-
-    if ratio_df.empty:
-        fig.add_annotation(
-            text="No data available",
-            showarrow=False,
-            font={"size": 14, "color": t["font_color"]},
-        )
-        fig.update_layout(title=f"Return-weighted Batch Reworks (From {start_date})")
-    else:
-        df = ratio_df.copy()
-        if is_filtering and effective_users:
-            df = df[df["User"].isin(effective_users)]
-
-        # Exclude any user records with zero submitted batches to avoid misleading 100% no-rework stats
-        if "Total Batches" in df.columns:
-            df = df[df["Total Batches"] > 0]
-
-        if df.empty:
-            fig.add_annotation(
-                text="No submitted batch data available",
-                showarrow=False,
-                font={"size": 14, "color": t["font_color"]},
-            )
-            fig.update_layout(
-                title=f"Return-weighted Batch Reworks (From {start_date})",
-                template=t["template"],
-                paper_bgcolor=t["bg_color"],
-                plot_bgcolor=t["bg_color"],
-                font=dict(family="Inter, sans-serif", color=t["font_color"]),
-                height=CHART_HEIGHT,
-            )
-            return fig
-
-        # Sort by Total Batches descending or alphabetical
-        grouping = ['User', 'Completion State'] if 'Completion State' in df else ['User']
-        if 'Completion State' in df and not df['Completion State'].isin(['Completed', 'Pending approvals']).all():
-            raise ValueError('Unknown batch completion state')
-        df = df.sort_values(grouping, ascending=True)
-
-        # Keep raw batch totals for tooltips and average durations.
-        totals = df["Total Batches"].replace(0, 1)  # avoid div by zero
-
-        # Define 6 tiers: (column_name, dark_color, light_color)
-        tiers = [
-            ("No Rework", "#10b981", "#059669"),   # Emerald Green
-            ("1 Rework",  "#facc15", "#eab308"),   # Vibrant Yellow (clear contrast against green)
-            ("2 Reworks", "#f59e0b", "#d97706"),   # Warm Amber
-            ("3 Reworks", "#f97316", "#ea580c"),   # Orange
-            ("4 Reworks", "#ef4444", "#dc2626"),   # Coral Red
-            ("5+ Reworks","#991b1b", "#7f1d1d"),   # Deep Red
-        ]
-
-        # Backward compatibility for legacy column names
-        if "Reworked Once" in df.columns and "1 Rework" not in df.columns:
-            df["1 Rework"] = df["Reworked Once"]
-        if "Reworked Twice+" in df.columns and "2 Reworks" not in df.columns:
-            df["2 Reworks"] = df["Reworked Twice+"]
-
-        tier_columns = [column for column, _, _ in tiers]
-        for column in tier_columns:
-            if column not in df:
-                df[column] = 0
-        if not (df[tier_columns].sum(axis=1) == df['Total Batches']).all():
-            raise ValueError('Rework tiers do not match submitted batch totals')
-        if df.duplicated(grouping).any():
-            raise ValueError('Duplicate user batch totals')
-
-        if 'Completion State' in df:
-            # Combine completed and pending batches before computing percentages.
-            # A person's return weights, durations and tier IDs share one stack.
-            combined = []
-            for user, rows in df.groupby('User', sort=True):
-                summed = rows[tier_columns + ['Total Batches']].sum().to_dict()
-                for column in ('5+ Return Count', 'Total Duration (hrs)'):
-                    if column in rows:
-                        summed[column] = rows[column].sum()
-                if 'Total Duration (hrs)' in summed:
-                    summed['Avg Batch Duration (hrs)'] = summed['Total Duration (hrs)'] / summed['Total Batches']
-                scoped_ids = {tier: set() for tier in tier_columns}
-                for scoped in rows.get('Tier IDs', []):
-                    if isinstance(scoped, dict):
-                        for tier in tier_columns:
-                            scoped_ids[tier].update(account.strip() for account in str(scoped.get(tier) or '').split(',')
-                                                    if account.strip())
-                combined.append({'User': user, **summed, 'Tier IDs': {
-                    tier: ', '.join(sorted(accounts)) for tier, accounts in scoped_ids.items()}})
-            df = pd.DataFrame(combined)
-            totals = df['Total Batches'].replace(0, 1)
-
-        weighted = df[tier_columns].mul([1, 1, 2, 3, 4, 5], axis='columns')
-        if '5+ Return Count' in df:
-            if ((df['5+ Return Count'] < df['5+ Reworks'] * 5)
-                    | ((df['5+ Reworks'] == 0) & (df['5+ Return Count'] != 0))).any():
-                raise ValueError('Invalid return count for the 5+ rework tier')
-            weighted['5+ Reworks'] = df['5+ Return Count']
-        weighted_totals = weighted.sum(axis=1).replace(0, 1)
-
-        for col, dark_c, light_c in tiers:
-            pct = (weighted[col] / weighted_totals) * 100
-            batch_pct = (df[col] / totals) * 100
-            bar_color = dark_c if is_dark else light_c
-
-            customdata = list(zip(df[col], df['Total Batches'], batch_pct, weighted[col]))
-            hovertemplate = f"<b>%{{x}}</b><br>{col}<br>"
-            if "Total Duration (hrs)" in df.columns:
-                avg_series = df.get("Avg Batch Duration (hrs)", df["Total Duration (hrs)"] / totals)
-                customdata = [(*values, duration, average) for values, duration, average in
-                              zip(customdata, df['Total Duration (hrs)'], avg_series)]
-                duration_index = len(customdata[0])
-                customdata = [(*values, format_seconds(duration * 3600))
-                              for values, duration in zip(customdata, df['Total Duration (hrs)'])]
-                hovertemplate += f"Total: %{{customdata[{duration_index}]}}"
-            else:
-                hovertemplate += "Total: Unavailable"
-            ids = [escape(str(scoped.get(col) or 'Unavailable')) if isinstance(scoped, dict)
-                   else 'Unavailable' for scoped in df.get('Tier IDs', [None] * len(df))]
-            id_index = len(customdata[0])
-            customdata = [(*values, account_ids) for values, account_ids in zip(customdata, ids)]
-            hovertemplate += f'<br>IDs: %{{customdata[{id_index}]}}<extra></extra>'
-
-            fig.add_trace(
-                go.Bar(
-                    name='No recorded rework' if col == 'No Rework' else col,
-                    x=df['User'],
-                    y=pct,
-                    marker=dict(color=bar_color, line=dict(width=1, color="rgba(0,0,0,0.1)")),
-                    customdata=customdata,
-                    hovertemplate=hovertemplate,
-                    text=pct.apply(lambda x: f"{x:.0f}%" if x >= 6 else ""),
-                    textposition="inside",
-                )
-            )
-
-        fig.update_layout(
-            barmode="stack",
-            title=f"Return-weighted Batch Reworks (From {start_date})",
-            yaxis_title="% of Weighted Total",
-            showlegend=True,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1,
-                font=dict(size=11, color=t["font_color"]),
-                bgcolor="rgba(0,0,0,0)",
-            ),
-        )
-
-    fig.update_layout(
-        template=t["template"],
-        plot_bgcolor=t["bg_color"],
-        paper_bgcolor=t["bg_color"],
-        font=dict(family="Inter, sans-serif", size=12, color=t["font_color"]),
-        title_font=dict(size=15, weight="bold"),
-        height=CHART_HEIGHT,
-        margin=dict(l=40, r=15, t=45, b=35),
-        bargap=0.35,
-        hoverlabel=dict(bgcolor=t["hover_bg"], font_color=t["hover_fg"], font_size=13),
-        xaxis=dict(showgrid=False, zeroline=False, automargin=True, tickfont=dict(size=11, weight="bold")),
-        yaxis=dict(
-            range=[0, 100],
-            showgrid=True,
-            gridcolor="rgba(128,128,128,0.2)",
-            zeroline=False,
-            automargin=True,
-            tickfont=dict(size=11),
-            ticksuffix="%",
-        ),
+    theme = theme_ctx(is_dark)
+    numeric = ['Total Batches', *TIERS, *LEGACY_UPPER, '3+ Return Count', '5+ Return Count',
+               'Reworked Once', 'Reworked Twice+', 'Total Duration (hrs)', 'Avg Batch Duration (hrs)']
+    frame = checked_frame(ratio_df, ['User', 'Total Batches'], numeric)
+    if frame.empty:
+        return state_figure('No submitted batch data available.', is_dark)
+    if is_filtering and effective_users:
+        frame = frame[frame['User'].isin(effective_users)]
+    frame = frame[frame['Total Batches'] > 0]
+    if frame.empty:
+        return state_figure('No submitted batch data available.', is_dark)
+    grouping = ['User', 'Completion State'] if 'Completion State' in frame else ['User']
+    if 'Completion State' in frame and not frame['Completion State'].isin(['Completed', 'Pending approvals']).all():
+        raise ValueError('Unknown batch completion state')
+    if frame.duplicated(grouping).any():
+        raise ValueError('Duplicate user batch totals')
+    stacks = _prepare_stacks(frame.sort_values(grouping))
+    users = list(stacks)
+    figure = go.Figure()
+    # Keep the established rework severity colors for the remaining tiers.
+    colors = (['#10b981', '#facc15', '#f59e0b', '#991b1b'] if is_dark else
+              ['#059669', '#eab308', '#d97706', '#7f1d1d'])
+    for index, (tier, color) in enumerate(zip(TIERS, colors)):
+        values, customdata = [], []
+        for user in users:
+            stack = stacks[user]
+            count, hours = stack['counts'][index], stack['hours'][index]
+            weight = stack['weights'][index]
+            values.append(weight / sum(stack['weights']) * 100)
+            average = hours / count if hours is not None and count else None
+            ids = escape(', '.join(sorted(stack['ids'][index])) or 'Unavailable')
+            customdata.append([count, stack['total'], count / stack['total'] * 100, weight,
+                               hours, average, format_seconds(hours * 3600 if hours is not None else None), ids])
+        figure.add_trace(go.Bar(
+            name='No recorded rework' if index == 0 else tier, x=users, y=values,
+            marker={'color': color, 'line': {'width': 0}}, customdata=customdata,
+            textposition='none',
+            textfont={'size': 10, 'color': 'white'},
+            hovertemplate=(f'<b>%{{x}}</b><br>{tier}<br>Duration: %{{customdata[6]}}'
+                           '<br>Return-weighted share: %{y:.1f}%'
+                           '<br>Batch count: %{customdata[0]}<br>IDs: %{customdata[7]}<extra></extra>'),
+        ))
+    figure.update_layout(
+        barmode='stack', title='Return-weighted reworks', template=theme['template'],
+        paper_bgcolor=theme['bg_color'], plot_bgcolor=theme['bg_color'],
+        font={'family': 'Inter, sans-serif', 'size': 12, 'color': theme['font_color']},
+        height=CHART_HEIGHT, margin={'l': 45, 'r': 16, 't': 52, 'b': 100},
+        hovermode='closest', showlegend=True,
+        hoverlabel={'bgcolor': theme['hover_bg'], 'font_color': theme['hover_fg'], 'font_size': 13},
+        xaxis={'showgrid': False, 'automargin': True, 'tickfont': {'size': 11}},
+        yaxis={'title': '% of Weighted Total', 'range': [0, 100], 'showgrid': True,
+               'automargin': True, 'ticksuffix': '%', 'tickfont': {'size': 11}},
     )
-    
-    # Improve text visibility
-    fig.update_traces(
-        textfont=dict(size=10, weight="bold", color="white"),
-        constraintext="none",
-    )
-    
-    return fig
+    return figure

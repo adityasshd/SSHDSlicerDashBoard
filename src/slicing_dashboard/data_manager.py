@@ -930,6 +930,15 @@ class DataManager:
             except Exception:
                 continue
 
+    def get_batch_returns_records(self, force_refresh: bool = False) -> list[dict[str, Any]]:
+        """Return cached batch return records, optionally syncing with upstream if forced."""
+        if force_refresh and not viewer_mode():
+            try:
+                return self.sync_batch_returns(force_refresh=True)
+            except Exception:
+                pass
+        return getattr(self, '_batch_returns_cache', []) or []
+
     @_per_refresh
     def sync_batch_returns(self, force_refresh: bool = False) -> list[dict[str, Any]]:
         """Sync live batch return history from upstream API and merge into persistent dataset.
@@ -1473,12 +1482,12 @@ class DataManager:
             return {**getattr(self, '_saved_approval_data', {}).get((start_date, end_date), {}),
                     'error': 'ApprovalReadFailed'}
 
-    def get_efficiency_history(self, start_date, end_date, force_refresh=False, capture_live=True):
+    def get_efficiency_history(self, start_date, end_date, force_refresh=False, capture_live=True, *, full_metrics=False):
         if viewer_mode():
             capture_live = False
         from slicing_dashboard.reporting.efficiency_history import EfficiencyHistory
         from slicing_dashboard.management.periods import today_iso
-        key = (start_date, end_date)
+        key = (start_date, end_date, 'full') if full_metrics else (start_date, end_date)
         try:
             if capture_live:
                 history = EfficiencyHistory(self)
@@ -1501,7 +1510,7 @@ class DataManager:
                     except Exception:
                         failed_days.append(day)
                         failure = 'EfficiencyCaptureFailed'
-            rows = history.read(start_date, end_date) if capture_live else history.read_completed(start_date, end_date)
+            rows = history.read(start_date, end_date) if capture_live or full_metrics else history.read_completed(start_date, end_date)
             if failure:
                 rows = [{**row, 'metadata': {**row['metadata'], 'error': failure}}
                         if row['date'] in failed_days else row for row in rows]

@@ -59,6 +59,7 @@ def prepare_approval_trend(data, selected_users=None, approvals=None):
     for day in data.get('history', []):
         summary = summarize_daily(day, selected_users)
         rows.append({'date': day['date'], 'total_seconds': summary['total_seconds'],
+                     'new_seconds': summary['new_seconds'],
                      **{field: None for field, _ in APPROVAL_STAGES}})
     approvals = approvals or {}
     selected = set(selected_users) if selected_users else None
@@ -138,6 +139,8 @@ def prepare_approval_trend(data, selected_users=None, approvals=None):
         'rows': rows,
         'recorded_days': sum(row['total_seconds'] is not None for row in rows),
         'calendar_days': len(rows),
+        'latest_submission_date': max((row['date'] for row in rows
+                                       if row['total_seconds'] is not None), default=None),
         'range_start': data.get('range_start'), 'range_end': data.get('range_end'),
         'captured_at': data.get('today', {}).get('metadata', {}).get('captured_at'),
         'stale': any(day.get('metadata', {}).get('error')

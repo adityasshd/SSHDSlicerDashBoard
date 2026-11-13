@@ -101,7 +101,8 @@ def test_rework_combines_same_person_and_preserves_saved_state_and_unique_return
         assert list(figure.data[0].y) == [50]
         assert list(figure.data[1].y) == [50]
         assert figure.data[0].customdata[0][1] == 2
-        assert figure.data[0].customdata[0][6] == '02:00:00'
+        assert figure.data[0].customdata[0][6] == '01:00:00'
+        assert figure.data[1].customdata[0][6] == '01:00:00'
         figure.to_json()
     # A person with no pending batches still has only one stack.
     figure = build_rework_ratio_chart(frame.iloc[:1], '2026-10-01', True)

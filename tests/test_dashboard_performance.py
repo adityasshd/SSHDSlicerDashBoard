@@ -113,7 +113,15 @@ class TestDashboardPerformance(unittest.TestCase):
             with self.subTest(dark=dark):
                 original = pio.templates['plotly_dark' if dark else 'plotly_white'].to_plotly_json()
                 compact = chart_template(dark).to_plotly_json()
-                self.assertEqual(compact['layout'], original['layout'])
+                # The compact theme keeps Plotly defaults except the executive palette/grid.
+                expected = original['layout']
+                expected.update(colorway=(['#c2fd75', '#165a50', '#a78bfa', '#43b8c6', '#7b91af'] if dark else
+                                          ['#165a50', '#78b844', '#8b5cf6', '#0891b2', '#668376']),
+                                bargap=.42, bargroupgap=.18)
+                for axis in ('xaxis', 'yaxis'):
+                    expected[axis].update(gridcolor='rgba(148,163,184,.16)' if dark else '#edf0f5',
+                                          zeroline=False)
+                self.assertEqual(compact['layout'], expected)
                 for kind in ('bar', 'scatter'):
                     self.assertEqual(compact['data'][kind], original['data'][kind])
                 figure = go.Figure().update_layout(template=chart_template(dark))

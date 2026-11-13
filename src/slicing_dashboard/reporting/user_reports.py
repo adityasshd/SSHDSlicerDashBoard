@@ -5,6 +5,7 @@ import json
 from time import perf_counter
 
 from slicing_dashboard.management.periods import today_iso
+from slicing_dashboard.runtime import viewer_mode
 from slicing_dashboard.reporting.completed_work import completed_work_for_period
 from slicing_dashboard.reporting.dashboard_reports import (
     date_range, day_for_ui, day_over_day, json_safe, report_users,
@@ -58,7 +59,7 @@ def get_user_report_data(manager, report_date=None, force_refresh=False):
                         'today': history[-1], 'yesterday': history[-2], 'history': history,
                         'users': users, 'days': days, 'current_period': current_period,
                         'earliest_recorded': earliest, 'batches': day_batches,
-                        'completed_period': {'loading': True}})
+                        'saved_only': viewer_mode(), 'completed_period': {'loading': True}})
     manager._user_report_cache = {key: (perf_counter(), deepcopy(payload))}
     return payload
 

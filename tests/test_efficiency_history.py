@@ -67,9 +67,10 @@ def test_completion_is_visible_as_status_without_creating_approval_hours(history
     data['efficiency_history'] = history.read('2026-10-05', '2026-10-06')
     report = prepare_approval_trend(data, ['Priya'])
     chart = build_approval_trend_chart(report)
-    assert chart.data[-1].name.replace('<br>', ' ') == 'Completed Video (includes errors)'
-    assert chart.data[-1].y[-1] == 1
-    assert chart.data[-1].y[-2] is None
+    completed = next(trace for trace in chart.data
+                     if trace.name.replace('<br>', ' ') == 'Completed Video (includes errors)')
+    assert completed.y[-1] == 1
+    assert completed.y[-2] is None
     assert all(value is None for trace in chart.data[1:4] for value in trace.y)
     assert prepare_approval_trend(data, ['Rajni'])['rows'][-1]['completed_seconds'] == 0
     assert 'Asia/Shanghai' in report['approval_status']
@@ -81,8 +82,12 @@ def test_saved_approvals_render_on_first_load_even_if_workflow_scan_failed():
     data['approvals'] = {'rows': [{'date': '2026-10-06', 'member': 'Priya', 'stage': 'Leader', 'seconds': 3600}],
                          'complete': False}
     chart, note = namespace['render_dashboard_trend'](data, None, 0, '/', {'error': 'ScanTimeout'})
-    assert chart.data[1].y[-1] == 1
-    assert 'Saved approvals' in note
+    assert len(chart.data) == 1 and chart.data[0].name.replace('<br>', ' ').startswith('Completed video')
+    # Saved approvals cannot stand in for missing completed-video captures.
+    assert all(value is None for value in chart.data[0].y)
+    assert build_approval_trend_chart(prepare_approval_trend(data, approvals=data['approvals'])).data[1].y[-1] == 1
+    assert '0 of 30 source days recorded' in note
+    assert 'Asia/Kolkata' not in note
 
 
 def test_daily_summary_survives_task_evidence_download_timeout():

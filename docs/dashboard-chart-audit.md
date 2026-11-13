@@ -15,13 +15,13 @@ The chart reflects the latest response returned by the source API. Backend repli
 
 ## Shared guards and corrected calculations
 
-`plots/guardrails.py` validates finite values, categorical keys and daily dates, preserves zero versus unavailable, and isolates rendering errors. `pages/components.py` gives graphs measurable responsive dimensions. Dense categorical charts retain horizontal scrolling; tall charts expand with the page. Vertical wheel input scrolls the page over every chart, and wheel zoom is disabled. Full labels and values remain in hover details; the expandable chart tables have been removed. Tooltips are bounded to the viewport. Empty/error axes are hidden and multiline titles have reserved space.
+`plots/guardrails.py` validates finite values, categorical keys and daily dates, preserves zero versus unavailable, and isolates rendering errors. `pages/components.py` gives graphs measurable responsive dimensions. Categorical charts fit their containers; tall charts expand with the page. Vertical wheel input scrolls the page over every chart, and wheel zoom is disabled. Full labels and values remain in hover details; the expandable chart tables have been removed. Tooltips are bounded to the viewport. Empty/error axes are hidden and multiline titles have reserved space.
 
 Previous plots stay interactive during a refresh. Loading labels do not intercept input. Plotly redraws no longer build hidden tables or trigger repeated document-wide chart scans, and each size change uses the shared ResizeObserver once. Data requests can still take time: the retained refresh profile showed about 25 seconds each for today/yesterday source scans and a 15-second database history timeout. These waits no longer disable the existing plots.
 
 Chart refreshes and scheduled captures reuse verified account mappings. A newly observed unmapped account triggers one mapping reload; encountering the same account again does not. Mapping discovery uses already captured accounts without requesting the user directory. The Settings mapping editor and an explicit data-health refresh of the configuration source can deliberately reload shared mappings. Configuration failures remain recorded in data health without repeating dashboard warning banners or asking the user to refresh mappings.
 
-Time-series gaps remain unknown, and cumulative lines use straight segments. Donut components must match their declared total. The recorded batch rework distribution counts identified submitted batches and unique recorded returns; it no longer guesses batch counts from hours or task counts. Missing assignment dates remain Unknown. KPI sparklines are omitted unless real trend evidence is supplied. The date-scoped pending KPI is labeled **Pending Review (Period)**, separately from the current queue chart.
+Time-series gaps remain unknown, and line charts use smooth splines. Donut components must match their declared total. The recorded batch rework distribution counts identified submitted batches and unique recorded returns; it no longer guesses batch counts from hours or task counts. Missing assignment dates remain Unknown. KPI sparklines are omitted unless real trend evidence is supplied. The date-scoped pending KPI is labeled **Pending Review (Period)**, separately from the current queue chart.
 
 ## Reproduce checks
 
@@ -94,3 +94,25 @@ The remaining tab delay came from awaiting the live task scan before returning a
 The page labels recorded figures while verification runs. A separate live renderer checks both report date and request ID before replacing content. Theme changes retain matching live figures and do not schedule another scan. Failed live captures retain recorded values with a failure notice. The source inventory itself remains roughly 20 seconds; it no longer gates first paint or dims charts throughout that wait.
 
 Verified on the restarted local dashboard: saved history returned in 0.397 seconds. The synthetic browser painted all four charts in 3.805 seconds while a ten-second live capture was still pending; values then updated from 2h to 4h. Theme switching during capture and retaining recorded figures after a failed refresh passed. The regression suite passed 391 tests and 26 subtests, including live-lock independence and date/refresh race protection. Local evidence is in `data/reports/chart-qa/daily-progressive-local-check.json` and `audit-daily-latency.json`.
+
+## Executive UI and rework tiers — 13 November 2026
+
+The dark theme follows the supplied NiceAdmin reference: `#141a18` page background, `#030e09` cards, teal navigation and lime accents. Light mode remains available. Existing user, review-stage, assignment-age and return-reason color mappings are preserved. Controls and KPI cards wrap responsively; charts fit their containers rather than forcing horizontal scrolling. A ResizeObserver and chart layout events reserve space for legends as cards resize. Capture and coverage details are expandable, and the toolbar uses one compact source badge instead of a repeated offline banner.
+
+The lead chart shows Total Work Done only. Its secondary outcomes chart and callback are removed. All line charts use splines, preserve missing observations as gaps, and retain the original numeric samples. Bars use a category gap of at least 0.42 and a group gap of 0.18. Axis labels, titles, empty states and bounded tooltips share the updated presentation.
+
+Rework stacks are No Rework, 1 Rework, 2 Reworks and 3+ Reworks. Percentages retain exact unique-return weighting, including return counts above three. Each tooltip shows only the hovered tier's actual video duration and accounts. A batch's duration counts once in its tier, rather than multiplying hours by returns. Tier durations survive the compact saved-panel round trip and combine across completed/pending states. Legacy six-tier captures fold into 3+ without losing recorded return weights; occupied tiers without saved duration evidence show Unavailable until refreshed.
+
+Validation: 539 tests and 26 subtests passed. Live resizing at 390, 1024, 1366, 1440, 1920 and 2560 pixels passed with no chart/page overflow or clipped chart labels. Both theme transitions passed. Real pointer hovers at 390 and 1366 pixels showed 01:00:00, 02:00:00, 03:00:00 and 15:00:00 for four separate fixture tiers, with only the hovered tier's accounts.
+
+Reproduce the added browser checks against a running synthetic fixture:
+
+```powershell
+node scripts/dashboard_browser_audit.mjs responsive http://127.0.0.1:8059
+node scripts/dashboard_browser_audit.mjs rework http://127.0.0.1:8059
+node scripts/dashboard_browser_audit.mjs controls http://127.0.0.1:8059
+```
+
+The fixture port can be changed with `DASHBOARD_QA_PORT`. Screenshots and JSON reports are saved under `data/reports/chart-qa/`. These checks use synthetic data and do not deploy or contact production data sources.
+
+The normal/35-user matrix also passed all 24 route/viewport combinations across Dashboard, Daily Report and User Report, with no runtime/network errors or overflowing chart containers. Reports: `audit-normal-many.json`, `audit-responsive.json`, `audit-rework.json` and `audit-controls.json` in the QA directory.

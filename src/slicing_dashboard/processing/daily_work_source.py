@@ -7,6 +7,22 @@ from zoneinfo import ZoneInfo
 from slicing_dashboard.processing.daily_work import daily_submissions, instant, batch_key, EXCLUDED
 
 
+class DailySubmissionAccessDenied(PermissionError):
+    """The authenticated source account lacks task inventory permission."""
+
+
+def check_inventory_access(response):
+    if response.status_code != 403:
+        return
+    try:
+        detail = response.json().get('detail', {})
+    except (ValueError, AttributeError):
+        return
+    if isinstance(detail, dict) and detail.get('code') == 'TASK_POOL_ADMIN_REQUIRED':
+        raise DailySubmissionAccessDenied(
+            'Daily submission collection requires an administrator account with task inventory access.')
+
+
 class DailyWorkSource:
     """Evidence shared by daily views during one explicit dashboard refresh.
 
@@ -57,10 +73,12 @@ class DailyWorkSource:
         if headers:
             kwargs["headers"] = headers
         response = method(url, **kwargs)
+        check_inventory_access(response)
         if response.status_code in (401, 403) and not headers:
             if not self.scraper.login():
                 raise ConnectionError("Daily-work API session expired")
             response = method(url, **kwargs)
+            check_inventory_access(response)
         response.raise_for_status()
         return response.json()
 

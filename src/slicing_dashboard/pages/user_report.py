@@ -16,6 +16,7 @@ from slicing_dashboard.reporting.user_reports import prepare_user_report
 
 
 def layout_user_report(today, users=()):
+    from slicing_dashboard.pages.status_report import status_slot
     return html.Div([
         html.Div([
             html.Div([html.H1('User Report', className='h3 mb-1'),
@@ -33,6 +34,7 @@ def layout_user_report(today, users=()):
         dcc.Store(id='user-date-follows-today', data=True),
         dcc.Store(id='user-completion-store'),
         dcc.Store(id='user-batches-store'),
+        status_slot('user'),
         dcc.Loading([dcc.Store(id='user-report-store'),
                      html.Div(id='user-report-content', children='Loading user report…')], type='circle',
                     overlay_style={'visibility': 'visible', 'opacity': .55},
@@ -195,7 +197,7 @@ def build_user_report_content(data, selected_user, is_dark=True):
     return html.Div([
         html.H2(report['user'], className='h4 mb-0'),
         html.Div(cards, className='user-report-kpis'),
-        html.Div(_day_notice(report['today']), className='report-status', **{'aria-live': 'polite'}),
+        html.Div(_day_notice(report['today'], data), className='report-status', **{'aria-live': 'polite'}),
         # Dash defaults to inline height:100%; give graphs their own height so
         # the section heading and description do not add overflow below the card.
         html.Div([report_section('90-day Activity Calendar', [

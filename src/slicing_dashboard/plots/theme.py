@@ -39,7 +39,7 @@ def user_color(user: str) -> str:
     return f"hsl({hue}, 65%, 60%)"
 
 # ── Compact chart height (px) used by all graphs ─────────────────────────────
-CHART_HEIGHT = 280
+CHART_HEIGHT = 340
 
 
 @lru_cache(maxsize=2)
@@ -48,6 +48,14 @@ def chart_template(is_dark: bool) -> go.layout.Template:
     template = pio.templates["plotly_dark" if is_dark else "plotly_white"].to_plotly_json()
     template["data"] = {kind: values for kind, values in template.get("data", {}).items()
                         if kind in ("bar", "scatter")}
+    grid = 'rgba(148,163,184,.16)' if is_dark else '#edf0f5'
+    template['layout'].update(
+        colorway=(['#c2fd75', '#165a50', '#a78bfa', '#43b8c6', '#7b91af'] if is_dark else
+                  ['#165a50', '#78b844', '#8b5cf6', '#0891b2', '#668376']),
+        bargap=.42, bargroupgap=.18,
+        xaxis={**template['layout'].get('xaxis', {}), 'gridcolor': grid, 'zeroline': False},
+        yaxis={**template['layout'].get('yaxis', {}), 'gridcolor': grid, 'zeroline': False},
+    )
     # A Template object replaces defaults; a dict merges with the full template.
     return go.layout.Template(template)
 
@@ -107,8 +115,8 @@ def theme_ctx(is_dark: bool) -> dict:
     """
     return {
         "template": chart_template(is_dark),
-        "font_color": "#e0e0e0" if is_dark else "#333333",
+        "font_color": "#ccd0ce" if is_dark else "#354039",
         "bg_color": "rgba(0,0,0,0)",
-        "hover_bg": "#2a2a35" if is_dark else "#f0f0f0",
-        "hover_fg": "#ffffff" if is_dark else "#111111",
+        "hover_bg": "#10261e" if is_dark else "#ffffff",
+        "hover_fg": "#e4ebe7" if is_dark else "#1e293b",
     }

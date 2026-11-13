@@ -14,10 +14,8 @@ node_modules/
 # Environment variables (credentials)
 .env
 
-# Data directories (raw extractions, processed data, reports)
-data/raw/
-data/processed/
-data/reports/
+# Data directories (raw extractions, processed data, reports, local caches)
+data/
 
 # Logs
 logs/

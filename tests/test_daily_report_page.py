@@ -201,6 +201,18 @@ class DailyReportRenderingTests(unittest.TestCase):
         self.assertTrue("saved submissions" in stale)
         self.assertIn("2026-10-06", stale)
 
+    def test_missing_saved_capture_explains_latest_history_on_both_report_pages(self):
+        from slicing_dashboard.pages.user_report import build_user_report_content
+        data = report_fixture(available=False)
+        data['saved_only'] = True
+        data['history'][-2]['metadata']['available'] = True
+        data['days'] = {day['date']: day for day in data['history']}
+        for page in (self.build(data), build_user_report_content(data, 'Riya')):
+            text = payload_text(page)
+            self.assertIn('Latest recorded submission day: 2026-10-05', text)
+            self.assertIn('Refresh loads saved reports', text)
+            self.assertIn('Available daily status above provides current metrics', text)
+
     def test_kpi_table_and_daily_bars_share_the_same_total(self):
         rows = [{"User": "Riya", "Total Tasks": 3, "Total Duration": 360,
                  "New Videos (First Time)": 60, "Same-day Rework": 120, "Old Rework": 180,

@@ -30,6 +30,7 @@ from slicing_dashboard.plots import (
     build_assigned_chart,
     build_legend_figure,
     build_kpi_layout,
+    build_return_reasons_chart,
     create_table,
 )
 from slicing_dashboard.plots.theme import CHART_HEIGHT
@@ -41,6 +42,7 @@ from slicing_dashboard.processing.daily_work import EXCLUDED
 from slicing_dashboard.pages.components import add_reporting_shell, contain_graphs
 from slicing_dashboard.pages.dashboard_panels import panel_stores, register_dashboard_panels
 from slicing_dashboard.pages.dashboard_trend import trend_stores, register_dashboard_trend
+from slicing_dashboard.pages.status_report import register_status_reports
 from slicing_dashboard.pages.daily_report import build_daily_report_content
 from slicing_dashboard.pages.user_report import build_user_report_content, completion_card, completion_note
 from slicing_dashboard.reporting.dashboard_reports import report_users
@@ -110,7 +112,7 @@ app.layout = html.Div(
                                         style={"fontSize": "1.15rem", "letterSpacing": "0.5px"},
                                     ),
                                     html.Span(
-                                        "Slicing Performance & Settlement",
+                                        "Slicing Analytics",
                                         className="fw-semibold text-body",
                                         style={"fontSize": "1.1rem"},
                                     ),
@@ -129,7 +131,7 @@ app.layout = html.Div(
                                         value=default_period_value,
                                         clearable=False,
                                         className="dropdown-glass",
-                                        style={"minWidth": "260px", "marginRight": "10px"},
+                                        style={"minWidth": 0, "width": "220px", "marginRight": "10px"},
                                     ),
                                     dbc.Button(
                                         "Today",
@@ -187,6 +189,8 @@ app.layout = html.Div(
                             dbc.Button(
                                 html.I(className="bi bi-moon-stars"),
                                 id="theme-toggle",
+                                n_clicks=0,
+                                title='Toggle color theme',
                                 color="link",
                                 className="text-decoration-none fs-5 text-primary p-0",
                             ),
@@ -219,7 +223,7 @@ app.layout = html.Div(
                             width="auto",
                         ),
                     ],
-                    className="mb-2 align-items-center glass-panel p-2 rounded shadow-sm d-flex justify-content-between",
+                    className="dashboard-toolbar glass-panel",
                     style={"position": "relative", "zIndex": 1050},
                 ),
 
@@ -227,17 +231,31 @@ app.layout = html.Div(
                 html.Div(id="server-status-banner"),
 
                 # ── KPI Cards (flex grid — all 7 in one row) ─────────
+                html.Div([
+                    html.Div([html.Span('OVERVIEW', className='dashboard-eyebrow'),
+                              html.H1('Slicing performance')]),
+                    html.Span('Team activity', className='dashboard-period-badge'),
+                ], className='dashboard-heading'),
                 html.Div(id="kpi-cards", className="kpi-grid mb-2"),
 
                 dcc.Store(id="dashboard-trend-store"),
                 html.Section([
                     dcc.Graph(id="approval-trend-chart", figure=_initial_fig,
                               config=_graph_cfg, responsive=True, className="report-comparison-chart"),
-                    html.Div(id="approval-trend-status", className="small text-secondary px-3 pb-3",
-                             **{"aria-live": "polite"}),
-                    dcc.Graph(id="approval-outcomes-chart", figure=_initial_fig,
-                              config=_graph_cfg, responsive=True, className="report-comparison-chart"),
-                ], className="glass-panel report-section mb-2"),
+                    html.Details([
+                        html.Summary('Data coverage'),
+                        html.Div(id="approval-trend-status", **{"aria-live": "polite"}),
+                    ], className='chart-details'),
+                ], className="glass-panel report-section dashboard-lead"),
+
+                dbc.Row([
+                    dbc.Col(dcc.Graph(id='approval-progression-chart', figure=_initial_fig,
+                                      config=_graph_cfg, className='glass-panel',
+                                      style=_graph_style), width=12, lg=7),
+                    dbc.Col(dcc.Graph(id='review-workload-chart', figure=_initial_fig,
+                                      config=_graph_cfg, className='glass-panel',
+                                      style=_graph_style), width=12, lg=5),
+                ], className='dashboard-insights mb-2'),
 
                 # ── Stores & Intervals ───────────────────────────────
                 dcc.Store(id="selected-users-store", data=available_users),
@@ -340,10 +358,28 @@ app.layout = html.Div(
                     className="mb-2",
                 ),
 
+                # ── Chart row 4: Major Return Reasons by User ───────
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            html.Div([dcc.Graph(
+                                id="return-reasons-chart",
+                                figure=_initial_fig,
+                                config=_graph_cfg,
+                                className="glass-panel p-1 rounded shadow-sm chart-compact",
+                                style={"minHeight": "360px", "height": "auto"},
+                            )]),
+                            width=12,
+                            className="mb-2 mb-lg-0",
+                        ),
+                    ],
+                    className="mb-2",
+                ),
+
                 # ── Tabs + Table ─────────────────────────────────────
             ],
             fluid=True,
-            className="p-3",
+            className="dashboard-shell",
         )
     ],
 )
@@ -576,7 +612,7 @@ def load_daily_report(pathname, n_clicks, n_intervals, report_date):
     try:
         force = trigger in ("refresh-btn", "auto-refresh-interval")
         return {**dm.get_saved_daily_report_data(report_date=report_date or today_iso(), force_refresh=force),
-                'request_id': uuid4().hex, 'force_refresh': force}
+                'request_id': uuid4().hex, 'force_refresh': force, 'refresh_pending': False}
     except ValueError:
         return {"validation_error": "Choose a valid report date on or before today in India time."}
 
@@ -715,11 +751,15 @@ def render_user_completion(completed, user, data, pathname):
 @app.callback(
     Output("user-report-person", "options"), Output("user-report-person", "value"),
     Input("user-report-store", "data"), State("user-report-person", "value"),
+    Input('report-status-store', 'data'), Input('report-status-live', 'data'),
 )
-def update_report_people(data, selected):
+def update_report_people(data, selected, status=None, live=None):
     if not data or data.get("validation_error"):
         return dash.no_update, dash.no_update
-    users = data.get("users", [])
+    from slicing_dashboard.pages.status_report import _matching
+    status = live if _matching(live, status) else status
+    status_users = (status or {}).get('users', []) if (status or {}).get('report_date') == data.get('report_date') else []
+    users = sorted(set(data.get("users", [])) | set(status_users), key=str.casefold)
     return [{"label": user, "value": user} for user in users], (
         dash.no_update if selected in users else users[0] if users else None)
 
@@ -863,10 +903,10 @@ def _build_status_badge(status: dict):
                         "borderRadius": "50%",
                         "backgroundColor": "#10B981",
                         "marginRight": "6px",
-                        "boxShadow": "0 0 6px #10B981",
+
                     }
                 ),
-                html.Span("Live (5m sync)", style={"fontSize": "0.78rem", "fontWeight": "600", "color": "#10B981"}),
+                html.Span("Live", style={"fontSize": "0.78rem", "fontWeight": "600", "color": "#10B981"}),
             ],
             className="d-flex align-items-center me-2 px-2 py-1 glass-panel rounded",
             title="API server is online. Auto-syncing every 5 minutes.",
@@ -884,7 +924,7 @@ def _build_status_badge(status: dict):
                         "marginRight": "6px",
                     }
                 ),
-                html.Span("Offline (Snapshot)", style={"fontSize": "0.78rem", "fontWeight": "600", "color": "#F59E0B"}),
+                html.Span("Saved capture", style={"fontSize": "0.78rem", "fontWeight": "600", "color": "#F59E0B"}),
             ],
             className="d-flex align-items-center me-2 px-2 py-1 glass-panel rounded border border-warning",
             title=f"Server unreachable. Displaying snapshot from {status.get('last_sync_time', 'earlier')}.",
@@ -892,44 +932,11 @@ def _build_status_badge(status: dict):
 
 
 def _build_status_banner(status: dict):
-    if viewer_mode():
-        message = getattr(dm, '_viewer_storage_error', None)
-        return dbc.Alert(message, color='warning', className='py-1 small') if message else None
-    is_live = status.get("is_live", True)
-    using_snap = status.get("is_using_snapshot", False)
-    if not is_live or using_snap:
-        sync_time = status.get("last_sync_time", "earlier")
-        return dbc.Alert(
-            [
-                html.Div(
-                    [
-                        html.I(className="bi bi-exclamation-triangle-fill text-warning me-2", style={"fontSize": "1.1rem"}),
-                        html.Strong("Server Offline: ", className="text-warning me-1"),
-                        html.Span(
-                            f"Remote API server is currently unreachable. Displaying cached data snapshot from {sync_time}. Heartbeat is checking every 30s to auto-sync once restored."
-                        ),
-                    ],
-                    className="d-flex align-items-center flex-grow-1",
-                ),
-                html.Div(
-                    [
-                        html.Span(
-                            className="spinner-grow spinner-grow-sm text-warning me-1",
-                            style={"width": "7px", "height": "7px"},
-                        ),
-                        html.Span("Heartbeat Active", style={"fontSize": "0.75rem"}),
-                    ],
-                    className="badge bg-dark text-warning border border-warning ms-2 d-flex align-items-center",
-                ),
-            ],
-            color="warning",
-            className="py-1 px-3 mb-2 d-flex align-items-center justify-content-between shadow-sm border-warning",
-            style={"borderRadius": "6px", "fontSize": "0.82rem", "backgroundColor": "rgba(245, 158, 11, 0.12)"},
-        )
+    if viewer_mode() and getattr(dm, '_viewer_storage_error', None):
+        return html.Div('Saved reports unavailable. Refresh to retry.',
+                        className='small text-secondary mb-3', role='status')
     return None
 
-
-# ── Main dashboard callback ──────────────────────────────────────────────
 def _prepare_pending_sources(force_refresh):
     """Prefetch current assignments; review inventory has its own callback."""
     for status in ('slice_assigned', 'slice_rework'):
@@ -1246,7 +1253,7 @@ def render_dashboard_trend(data, selected_users, theme_clicks, pathname, workflo
     if pathname not in (None, "/", "/dashboard"):
         raise dash.exceptions.PreventUpdate
     if not data:
-        return empty_fig(), "Loading recorded work history…"
+        return empty_fig(), "Loading completed video history…"
     if data.get('validation_error'):
         return state_figure(data['validation_error'], (theme_clicks or 0) % 2 == 0), data['validation_error']
     # The dashboard's initial all-users selection must include new accounts.
@@ -1256,23 +1263,21 @@ def render_dashboard_trend(data, selected_users, theme_clicks, pathname, workflo
         approvals = {**approvals, 'error': (workflow or {})['error']}
     report = prepare_approval_trend(data, users, approvals)
     is_dark = theme_clicks is None or theme_clicks % 2 == 0
-    note = (f"{report['recorded_days']} of {report['calendar_days']} days recorded · Asia/Kolkata. "
-            "Missing dates appear as gaps. " + report['approval_status'])
+    completion_days = sum(row.get('completed_seconds') is not None for row in report['rows'])
+    note = (f"{completion_days} of {report['calendar_days']} source days recorded · UTC+08. "
+            "Completed video includes confirmed errors. Missing dates remain gaps.")
     if report['range_end'] == today_iso():
         note += " Today is provisional."
-    if report['captured_at']:
-        note += f" Latest saved capture: {report['captured_at']}."
-    if report['stale']:
+    if any(day.get('metadata', {}).get('error') or day.get('metadata', {}).get('persistence_error')
+           for day in data.get('efficiency_history', [])):
         note += " Saved evidence is shown; refresh or persistence could not be verified."
-    if workflow and not workflow.get('error'):
-        note += (f" Workflow history: {workflow.get('events', 0)} actions, "
-                 f"{workflow.get('synthetic', 0)} synthetic prerequisites. Unknown approval times are excluded from daily hours.")
-    return build_approval_trend_chart(report, is_dark), note
+    return build_approval_trend_chart(report, is_dark, primary_only=True, primary_metric='completed'), note
 
 
 
 register_dashboard_panels(app, dm, available_users)
 register_dashboard_trend(app, dm, render_dashboard_trend, available_users)
+register_status_reports(app, dm)
 
 
 @app.callback(Output('theme-toggle', 'children'), Output('server-status-banner', 'children'),
@@ -1289,11 +1294,38 @@ def render_dashboard_controls(theme_clicks, status):
 
 register_management_callbacks(app, dm)
 
+@app.callback(
+    Output("return-reasons-chart", "figure"),
+    Input("date-from", "value"),
+    Input("date-to", "value"),
+    Input("selected-users-store", "data"),
+    Input("theme-toggle", "n_clicks"),
+    Input("refresh-btn", "n_clicks"),
+    Input("auto-refresh-interval", "n_intervals"),
+    Input("report-location", "pathname"),
+)
+def render_return_reasons_chart(start_date, end_date, selected_users, theme_clicks, n_clicks, n_intervals, pathname):
+    if pathname not in (None, "/", "/dashboard"):
+        raise dash.exceptions.PreventUpdate
+    is_dark = theme_clicks is None or theme_clicks % 2 == 0
+    trigger = dash.ctx.triggered_id
+    force = trigger in ("refresh-btn", "auto-refresh-interval")
+    records = dm.get_batch_returns_records(force_refresh=force)
+    return build_return_reasons_chart(
+        records,
+        is_dark=is_dark,
+        selected_users=selected_users if selected_users and len(selected_users) < len(available_users) else None,
+        start=start_date,
+        end=end_date,
+        canonical_map=dm.user_mapping,
+    )
+
+
 def run_local(port=8050):
     # Werkzeug's Windows process reloader can close the serving thread's socket.
     # Keep debug tools available and restart manually after Python edits on Windows.
     reload_code = sys.platform != 'win32'
-    app.run(debug=True, port=port, use_reloader=reload_code,
+    app.run(debug=True, dev_tools_ui=False, port=port, use_reloader=reload_code,
             dev_tools_hot_reload=reload_code)
 
 

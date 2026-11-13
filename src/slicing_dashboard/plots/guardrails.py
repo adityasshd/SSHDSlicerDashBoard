@@ -148,18 +148,39 @@ def dated_records(rows, identity=()):
     return sorted(result, key=lambda row: row['date'])
 
 
-def finish_chart(figure):
+def finish_chart(figure, is_dark=None):
     """Contain labels and legends without changing underlying coordinates/values."""
     if not isinstance(figure, go.Figure):
         return figure
-    figure.update_layout(autosize=True, hoverlabel={'namelength': -1},
+    if is_dark is not None:
+        figure.update_layout(font={'family': 'Segoe UI, Arial, sans-serif', 'color': theme_ctx(is_dark)['font_color']})
+    figure.update_layout(autosize=True, width=None, hoverlabel={'namelength': -1, 'bordercolor': 'rgba(148,163,184,.25)'},
                          uniformtext={'minsize': 9, 'mode': 'hide'})
+    if any(trace.type == 'bar' for trace in figure.data):
+        figure.update_layout(bargap=max(.42, figure.layout.bargap or 0), bargroupgap=.18,
+                             barcornerradius=7)
+    for trace in figure.data:
+        if trace.type == 'scatter' and 'lines' in (trace.mode or ''):
+            trace.update(line={'shape': 'spline', 'smoothing': .65})
+    figure.update_xaxes(automargin=True, zeroline=False, tickfont={'size': 12})
+    figure.update_yaxes(automargin=True, zeroline=False, tickfont={'size': 12})
+    for axis in figure.select_xaxes():
+        if axis.showgrid is not False:
+            axis.gridcolor = 'rgba(148,163,184,.16)'
+    for axis in figure.select_yaxes():
+        if axis.showgrid is not False:
+            axis.gridcolor = 'rgba(148,163,184,.16)'
     if figure.layout.title.text:
         lines = [part for line in figure.layout.title.text.split('<br>')
                  for part in wrap(line, 38)]
         figure.update_layout(title={'text': '<br>'.join(lines), 'automargin': False,
+                                    'font': {'size': 14, 'weight': 600},
                                     'yref': 'container', 'y': 1, 'yanchor': 'top', 'pad': {'t': 16}},
                              margin={'t': max(28 + 20 * len(lines), figure.layout.margin.t or 0)})
+    for annotation in figure.layout.annotations or ():
+        if annotation.xref == 'paper' and annotation.yref == 'paper' and annotation.text:
+            annotation.text = '<br>'.join(part for line in annotation.text.split('<br>')
+                                         for part in wrap(line, 30))
     # A unified tooltip for dozens of people can exceed the viewport height.
     if len(figure.data) > 8:
         figure.update_layout(hovermode='closest')
@@ -167,9 +188,9 @@ def finish_chart(figure):
         trace.showlegend is not False and trace.name for trace in figure.data)
     if legend_visible:
         figure.update_layout(legend={'orientation': 'h', 'x': 0, 'xanchor': 'left',
-                                    'y': -.25, 'yanchor': 'top', 'font': {'size': 10},
-                                    'entrywidth': 110, 'maxheight': .23, 'title': {'text': ''}},
-                             margin={'b': max(90, figure.layout.margin.b or 0)})
+                                    'y': -.22, 'yanchor': 'top', 'font': {'size': 11},
+                                    'entrywidth': 110, 'maxheight': .35, 'title': {'text': ''}},
+                             margin={'b': max(100, figure.layout.margin.b or 0)})
     for axis_name in ('x', 'y'):
         axis = getattr(figure.layout, axis_name + 'axis')
         if axis.type == 'date' or axis.ticktext is not None or axis.visible is False:
@@ -185,7 +206,7 @@ def finish_chart(figure):
                         ticktext=[value if len(value) <= 16 else value[:15] + '…' for value in ticks],
                         automargin=True)
     def trace_values(trace):
-        key = 'values' if trace.type == 'pie' else 'x' if getattr(trace, 'orientation', None) == 'h' else 'y'
+        key = 'values' if trace.type == 'pie' else 'x' if trace.type == 'funnel' or getattr(trace, 'orientation', None) == 'h' else 'y'
         values = getattr(trace, key, None)
         return [] if values is None else values
     has_numeric_values = any(finite_number(value) is not None for trace in figure.data
@@ -200,7 +221,9 @@ def finish_chart(figure):
     # Prevent unbounded SVG text from widening the tooltip. Custom data remains intact.
     for trace in figure.data:
         if trace.type == 'bar':
-            trace.update(constraintext='inside', cliponaxis=trace.textposition != 'outside')
+            trace.update(constraintext='inside', cliponaxis=trace.textposition != 'outside', marker_line_width=0)
+            if getattr(trace, 'orientation', None) == 'h' and (figure.layout.meta or {}).get('bar_total_labels'):
+                trace.update(textposition='none')
         if trace.name and len(trace.name) > 22:
             trace.name = '<br>'.join(escape(part) for part in wrap(trace.name, 22))
         template = getattr(trace, 'hovertemplate', None)
@@ -240,8 +263,8 @@ def safe_chart(function=None, *, height=CHART_HEIGHT):
                         return state_figure(value.attrs['chart_error'], dark, height)
                 figure = builder(*args, **kwargs)
                 if isinstance(figure, tuple):
-                    return (finish_chart(figure[0]), *figure[1:])
-                return finish_chart(figure)
+                    return (finish_chart(figure[0], dark), *figure[1:])
+                return finish_chart(figure, dark)
             except Exception:
                 log.exception('Chart rendering failed: %s', builder.__name__)
                 figure = state_figure('Chart data unavailable. Refresh to retry.', dark, height)

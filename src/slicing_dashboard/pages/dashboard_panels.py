@@ -2,7 +2,7 @@
 from uuid import uuid4
 
 import dash
-from dash import Input, Output, State, dcc
+from dash import Input, Output, State, dcc, html
 import dash_bootstrap_components as dbc
 
 from slicing_dashboard.reporting.dashboard_panels import (
@@ -53,7 +53,8 @@ def render_panel(kind, request, saved, live, selected, theme, roster):
         return content, status
     if kind == 'summary':
         return build_kpi_layout(selected_summary(packet['data'], selected, roster),
-                                packet['data']['funnel'], dark), status
+                                packet['data']['funnel'], dark), html.Span(
+                                    'Updated' if live and live.get('available') else 'Saved capture', title=status)
     frame = panel_frame(packet)
     if selected is not None and 'User' in frame:
         frame = frame[frame['User'].isin(selected)]
@@ -100,6 +101,35 @@ def register_dashboard_panels(app, manager, roster):
 
     for kind in KINDS:
         _register_panel(app, manager, roster, kind)
+
+    def review_mix(request, saved, live, selected, theme, pathname):
+        if not request or pathname not in (None, '/', '/dashboard'):
+            raise dash.exceptions.PreventUpdate
+        from slicing_dashboard.plots.overview_charts import build_review_workload_donut
+        packet, status = choose_packet(request, saved, live)
+        dark = (theme or 0) % 2 == 0
+        if not packet:
+            return state_figure(status, dark, 340)
+        frame = panel_frame(packet)
+        if selected is not None and 'User' in frame:
+            frame = frame[frame['User'].isin(selected)]
+        return build_review_workload_donut(frame, dark)
+
+    @app.callback(Output('review-workload-chart', 'figure'),
+                  Input('dashboard-pending-request', 'data'), Input('dashboard-saved-pending', 'data'),
+                  Input('selected-users-store', 'data'), Input('theme-toggle', 'n_clicks'),
+                  State('dashboard-live-pending', 'data'), State('report-location', 'pathname'))
+    def paint_mix_saved(request, saved, selected, theme, live, pathname):
+        return review_mix(request, saved, live, selected, theme, pathname)
+
+    @app.callback(Output('review-workload-chart', 'figure', allow_duplicate=True),
+                  Input('dashboard-live-pending', 'data'), State('dashboard-pending-request', 'data'),
+                  State('dashboard-saved-pending', 'data'), State('selected-users-store', 'data'),
+                  State('theme-toggle', 'n_clicks'), State('report-location', 'pathname'), prevent_initial_call=True)
+    def paint_mix_live(live, request, saved, selected, theme, pathname):
+        if not request or not matching_packet(request, live):
+            raise dash.exceptions.PreventUpdate
+        return review_mix(request, saved, live, selected, theme, pathname)
 
 
 def _register_panel(app, manager, roster, kind):

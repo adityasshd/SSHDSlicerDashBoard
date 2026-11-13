@@ -25,6 +25,15 @@ def _make_kpi_card(
     text_col = "#e0e0e0" if is_dark else "#333333"
     icon_bg = "rgba(255,255,255,0.05)" if is_dark else "rgba(0,0,0,0.03)"
 
+    # Keep longer breakdowns available without filling the summary row.
+    context = (html.Details([html.Summary('Breakdown'), html.Div(badge_text)], className='kpi-context')
+               if len(badge_text) > 48 else html.Div(
+                   html.Span(badge_text, style={
+                       'backgroundColor': badge_color + '18', 'color': badge_color,
+                       'fontSize': '10px', 'fontWeight': 600, 'padding': '3px 6px',
+                       'borderRadius': '5px', 'whiteSpace': 'normal', 'lineHeight': '1.5',
+                   }), style={'marginTop': '6px'})) if badge_text else None
+
     # Sparkline mini-chart
     fig = go.Figure(
         go.Scatter(
@@ -104,22 +113,7 @@ def _make_kpi_card(
                         style={"height": "22px"},
                     ) if sparkline_data is not None else None,
                     # Badge
-                    html.Div(
-                        html.Span(
-                            badge_text,
-                            style={
-                                "backgroundColor": badge_color + "25",
-                                "color": badge_color,
-                                "fontSize": "0.58rem",
-                                "fontWeight": "600",
-                                "padding": "2px 5px",
-                                "borderRadius": "4px",
-                                "whiteSpace": "normal",
-                                "lineHeight": "1.3",
-                            },
-                        ),
-                        style={"marginTop": "3px"},
-                    ) if badge_text else None,
+                    context,
                 ],
                 className="p-2",
             ),
@@ -157,7 +151,7 @@ def make_kpi_card(
 
 
 def _fmt_badge(pct: float) -> str:
-    return f"{pct:+.1f}% Vs Prev Period"
+    return f"{pct:+.1f}% vs previous"
 
 
 def build_kpi_layout(kpis: dict, funnel_map: dict, is_dark: bool) -> list:

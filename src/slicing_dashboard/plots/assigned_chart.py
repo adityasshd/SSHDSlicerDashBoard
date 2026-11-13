@@ -113,7 +113,7 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
     # Pre-add legend guide dummy traces using Scatter markers (avoids null categories in bar traces)
     fig.add_trace(
         go.Scatter(
-            name="Assigned (Fresh: Light Green)",
+            name="Assigned · fresh",
             x=[None],
             y=[None],
             mode="markers",
@@ -124,7 +124,7 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
     )
     fig.add_trace(
         go.Scatter(
-            name="Assigned (Aged: Forest -> Olive)",
+            name="Assigned · aged",
             x=[None],
             y=[None],
             mode="markers",
@@ -135,7 +135,7 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
     )
     fig.add_trace(
         go.Scatter(
-            name="Rework (Returned today: Pink)",
+            name="Rework · today",
             x=[None],
             y=[None],
             mode="markers",
@@ -146,7 +146,7 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
     )
     fig.add_trace(
         go.Scatter(
-            name="Rework (Returned earlier: Dark Red)",
+            name="Rework · earlier",
             x=[None],
             y=[None],
             mode="markers",
@@ -233,7 +233,7 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
         plot_bgcolor=t["bg_color"],
         paper_bgcolor=t["bg_color"],
         font=dict(family="Inter, sans-serif", size=12, color=t["font_color"]),
-        title=dict(text="Assigned & Rework by ID (Hours)", font=dict(size=15, weight="bold")),
+        title=dict(text="Assigned work by account", font=dict(size=15, weight="bold")),
         height=dynamic_height,
         margin=dict(l=10, r=30, t=45, b=65),
         bargap=0.3,

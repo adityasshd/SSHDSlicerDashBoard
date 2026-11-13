@@ -1,9 +1,24 @@
 import unittest
 from collections import Counter
 from unittest.mock import MagicMock
+import httpx
+import pytest
 
 from slicing_dashboard.processing.daily_work import aggregate_daily_work
-from slicing_dashboard.processing.daily_work_source import DailyWorkSource
+from slicing_dashboard.processing.daily_work_source import DailyWorkSource, DailySubmissionAccessDenied
+
+
+def test_admin_permission_error_stops_before_relogin_or_another_inventory_request():
+    scraper = MagicMock(is_authenticated=True)
+    scraper._base_url = 'https://fixture.invalid'
+    scraper._client.post.return_value = httpx.Response(403,
+        request=httpx.Request('POST', 'https://fixture.invalid/api/tasks/overview'),
+        json={'detail': {'code': 'TASK_POOL_ADMIN_REQUIRED', 'message': 'Admin required'}})
+    source = DailyWorkSource(scraper)
+    with pytest.raises(DailySubmissionAccessDenied, match='administrator account'):
+        source.request('/api/tasks/overview', body={'page': 1, 'page_size': 500})
+    scraper.login.assert_not_called()
+    assert scraper._client.post.call_count == 1
 
 
 def task(identity, submitted, batch=1, **extra):

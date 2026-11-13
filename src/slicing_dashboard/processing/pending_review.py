@@ -76,7 +76,7 @@ def fetch_efficiency_items(scraper, end):
     raise ValueError('Review inventory pagination limit reached')
 
 
-def fetch_items(scraper, end):
+def fetch_items(scraper, end, *, task_records=None):
     """Build current review inventory from complete, explicitly staged task queues.
 
     The efficiency aggregate can retain Leader hours for tasks already awaiting
@@ -84,28 +84,35 @@ def fetch_items(scraper, end):
     ``end`` is the cache's calendar boundary, not a filter on pending tasks.
     """
     from slicing_dashboard.processing.current_queue import fetch_queue
+    from slicing_dashboard.processing.review_timing import recover_review_durations
     if not scraper.is_authenticated and not scraper.login():
         raise ConnectionError('Review inventory login failed')
     statuses = ('slice_submitted', 'slice_pending_auditor_review', 'slice_pending_admin_review')
     with ThreadPoolExecutor(max_workers=3) as pool:
         queues = list(pool.map(lambda status: fetch_queue(scraper, status), statuses))
-    accounts, seen = {}, set()
+    seen, tasks_by_stage = set(), []
     for (field, _), tasks in zip(STAGES, queues):
         for task in tasks:
             identity = str(task['id'])
             if identity in seen:
                 raise ValueError('Task appears in multiple review stages; retry capture')
             seen.add(identity)
-            username = task.get('slicer')
-            if not isinstance(username, str) or not username.strip():
-                raise ValueError('Missing review account')
-            uid = task.get('slicer_id')
-            key = ('id', str(uid)) if uid is not None else ('name', username.strip().casefold())
-            row = accounts.setdefault(key, {'user_id': uid, 'username': username,
-                **{f'{stage}_review_{metric}': 0 for stage, _ in STAGES
-                   for metric in ('count', 'duration_seconds')}})
-            row[f'{field}_review_duration_seconds'] += number(task.get('duration_seconds'))
-            row[f'{field}_review_count'] += 1
+            tasks_by_stage.append((field, task))
+    recovered = recover_review_durations(scraper, [task for _, task in tasks_by_stage])
+    accounts = {}
+    for (field, _), task in zip(tasks_by_stage, recovered):
+        username = task.get('slicer')
+        if not isinstance(username, str) or not username.strip():
+            raise ValueError('Missing review account')
+        uid = task.get('slicer_id')
+        key = ('id', str(uid)) if uid is not None else ('name', username.strip().casefold())
+        row = accounts.setdefault(key, {'user_id': uid, 'username': username,
+            **{f'{stage}_review_{metric}': 0 for stage, _ in STAGES
+               for metric in ('count', 'duration_seconds')}})
+        row[f'{field}_review_duration_seconds'] += number(task.get('duration_seconds'))
+        row[f'{field}_review_count'] += 1
+    if task_records is not None:
+        task_records.extend(recovered)
     return list(accounts.values())
 
 

@@ -72,20 +72,22 @@ def test_rework_shares_weight_each_tier_and_preserve_raw_counts(dark):
     original = frame.copy(deep=True)
     figure = build_rework_ratio_chart(frame, '2026-10-01', dark)
     assert [trace.y[0] for trace in figure.data] == pytest.approx(
-        [6.25, 6.25, 12.5, 18.75, 25, 31.25])
+        [6.25, 6.25, 12.5, 75])
     assert sum(trace.y[0] for trace in figure.data) == pytest.approx(100)
-    for trace, weight in zip(figure.data, [1, 1, 2, 3, 4, 5]):
-        assert list(trace.customdata[0][:6]) == pytest.approx([1, 6, 100 / 6, weight, 12, 2])
-        assert trace.customdata[0][6] == '12:00:00'
+    for trace, count, weight in zip(figure.data, [1, 1, 1, 3], [1, 1, 2, 12]):
+        assert list(trace.customdata[0][:4]) == pytest.approx([count, 6, count * 100 / 6, weight])
+        assert list(trace.customdata[0][4:6]) == [None, None]
+        assert trace.customdata[0][6] == 'Unavailable'
         assert trace.customdata[0][-1] == 'Unavailable'
-        assert 'Total:' in trace.hovertemplate
+        assert 'Duration:' in trace.hovertemplate
         assert 'Weighted share:' not in trace.hovertemplate
-        assert 'batches' not in trace.hovertemplate
+    assert figure.data[-1].name == '3+ Reworks'
+    assert figure.layout.hovermode == 'closest'
     assert figure.layout.yaxis.title.text == '% of Weighted Total'
     pd.testing.assert_frame_equal(frame, original)
 
 
-def test_grouped_reworks_use_exact_unique_return_counts_above_five():
+def test_grouped_reworks_use_exact_unique_return_counts_above_three():
     batches = [dict(batch_id=batch, batch_date='2026-10-01', status='batch_completed', total_duration_seconds=0)
                for batch in ['clean', 'five', 'seven']]
     events = [dict(event_id=f'{batch}-{index}', batch_id=batch, returned_at='2026-10-02T03:00:00Z')
@@ -94,8 +96,8 @@ def test_grouped_reworks_use_exact_unique_return_counts_above_five():
     frame = batch_ratios(batches, [*events, events[0], dict(event_id='later', batch_id='seven',
                         returned_at='2026-10-08T03:00:00Z')],
                         '2026-10-01', '2026-10-07', lambda batch: 'A')
-    assert frame.iloc[0]['5+ Reworks'] == 2
-    assert frame.iloc[0]['5+ Return Count'] == 12
+    assert frame.iloc[0]['3+ Reworks'] == 2
+    assert frame.iloc[0]['3+ Return Count'] == 12
     figure = build_rework_ratio_chart(frame, '2026-10-01', True)
     assert figure.data[0].y[0] == pytest.approx(100 / 13)
     assert figure.data[-1].y[0] == pytest.approx(1200 / 13)
@@ -112,6 +114,7 @@ def test_rework_tooltip_ids_are_scoped_to_the_hovered_tier():
     frame = batch_ratios(batches, events, '2026-10-01', '2026-10-07', lambda batch: 'Person')
     figure = build_rework_ratio_chart(frame, '2026-10-01', True)
     assert [trace.customdata[0][-1] for trace in figure.data[:3]] == ['A-clean', 'A-return', 'B-return']
+    assert [trace.customdata[0][6] for trace in figure.data] == ['01:00:00', '02:00:00', '01:00:00', '00:00:00']
     assert all('IDs: %{customdata[7]}' in trace.hovertemplate for trace in figure.data)
 
 
@@ -128,6 +131,38 @@ def test_weighted_rework_keeps_clean_users_and_legacy_tiers_with_filtering():
     filtered = build_rework_ratio_chart(frame, '', True, ['Returned'], True)
     assert list(filtered.data[0].x) == ['Returned']
     assert filtered.data[2].y[0] == pytest.approx(200 / 3)
+
+
+def test_three_plus_durations_and_accounts_survive_saved_panel_roundtrip():
+    from slicing_dashboard.reporting.dashboard_panels import frame_payload, panel_frame
+    batches = [dict(batch_id=str(index), username=f'account-{index}', batch_date='2026-10-01',
+                    status='batch_completed' if index % 2 else 'batch_pending_admin_review',
+                    total_duration_seconds=hours * 3600)
+               for index, hours in enumerate([1, 2, 3, 4, 5, 6])]
+    events = [dict(event_id=f'{index}-{attempt}', batch_id=str(index), returned_at='2026-10-02T03:00:00Z')
+              for index, count in enumerate([0, 1, 2, 3, 4, 7]) for attempt in range(count)]
+    frame = batch_ratios(batches, events + [events[-1]], '2026-10-01', '2026-10-07', lambda b: 'Person')
+    restored = panel_frame({'data': frame_payload(frame, 'rework')})
+    figure = build_rework_ratio_chart(restored, '', True)
+    assert [trace.name for trace in figure.data] == ['No recorded rework', '1 Rework', '2 Reworks', '3+ Reworks']
+    assert [trace.customdata[0][0] for trace in figure.data] == [1, 1, 1, 3]
+    assert [trace.customdata[0][6] for trace in figure.data] == ['01:00:00', '02:00:00', '03:00:00', '15:00:00']
+    assert figure.data[-1].customdata[0][3] == 14
+    assert figure.data[-1].customdata[0][7] == 'account-3, account-4, account-5'
+    assert sum(trace.y[0] for trace in figure.data) == pytest.approx(100)
+
+
+def test_legacy_three_plus_merges_scoped_durations_without_using_person_total():
+    frame = pd.DataFrame([{'User': 'A', 'Total Batches': 4, 'No Rework': 1,
+        '3 Reworks': 1, '4 Reworks': 1, '5+ Reworks': 1, '5+ Return Count': 8,
+        'Total Duration (hrs)': 20, 'Tier Duration (hrs)': {
+            'No Rework': 2, '3 Reworks': 4, '4 Reworks': 6, '5+ Reworks': 8},
+        'Tier IDs': {'No Rework': 'clean', '3 Reworks': 'three', '4 Reworks': 'four', '5+ Reworks': 'eight'}}])
+    figure = build_rework_ratio_chart(frame, '', False)
+    assert figure.data[0].customdata[0][6] == '02:00:00'
+    assert figure.data[-1].customdata[0][6] == '18:00:00'
+    assert figure.data[-1].customdata[0][3] == 15
+    assert figure.data[-1].customdata[0][7] == 'eight, four, three'
 
 
 def test_ratio_does_not_generate_batches_from_efficiency_or_current_rework():

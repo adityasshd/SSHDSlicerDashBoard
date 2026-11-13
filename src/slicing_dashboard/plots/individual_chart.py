@@ -75,7 +75,7 @@ def build_individual_chart(
         x="User",
         y=df["Completed Duration"] / 3600,
         orientation="v",
-        title=f"Completed Hours ({start_date} to {end_date})",
+        title="Completed video duration",
         template=t["template"],
         color="User",
         color_discrete_map=USER_COLORS,

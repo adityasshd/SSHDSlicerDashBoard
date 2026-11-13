@@ -16,6 +16,7 @@ from slicing_dashboard.plots.legend import build_legend_figure
 from slicing_dashboard.plots.tables import create_table
 from slicing_dashboard.plots.rework_ratio_chart import build_rework_ratio_chart
 from slicing_dashboard.plots.work_trend_chart import build_user_comparison_chart, build_work_composition_chart
+from slicing_dashboard.plots.return_reasons_chart import build_return_reasons_chart
 
 __all__ = [
     "USER_COLORS",
@@ -32,6 +33,7 @@ __all__ = [
     "build_assigned_chart",
     "build_error_rework_chart",
     "build_legend_figure",
+    "build_return_reasons_chart",
     "create_table",
     "empty_fig",
 ]

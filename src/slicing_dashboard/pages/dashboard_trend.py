@@ -85,21 +85,29 @@ def register_dashboard_trend(app, manager, render, roster=None):
             raise dash.exceptions.PreventUpdate
         return render(live, users, theme, pathname)
 
-    @app.callback(Output('approval-outcomes-chart', 'figure'),
-                  Input('dashboard-trend-store', 'data'), Input('dashboard-trend-live', 'data'),
-                  Input('selected-users-store', 'data'), Input('theme-toggle', 'n_clicks'),
-                  Input('report-location', 'pathname'))
-    def paint_outcomes(data, live, users, theme, pathname):
+    def progression(data, live, users, theme, pathname):
         if pathname not in (None, '/', '/dashboard'):
             raise dash.exceptions.PreventUpdate
-        from slicing_dashboard.plots.approval_outcomes_chart import build_approval_outcomes_chart
-        from slicing_dashboard.reporting.approval_funnel import prepare_funnel
+        from slicing_dashboard.plots.overview_charts import build_approval_progression
         display = (live if matching_live(data, live) else data) or {}
-        days = [day['date'] for day in display.get('history', [])]
         selection = users if users and (roster is None or len(users) < len(roster)) else None
-        _, totals = prepare_funnel(display.get('approvals', {}).get('funnel', {}), days, selection)
-        return build_approval_outcomes_chart(totals, (theme or 0) % 2 == 0,
-                                            available='funnel' in display.get('approvals', {}),
-                                            start=display.get('range_start'), end=display.get('range_end'))
+        return build_approval_progression(display.get('approvals', {}).get('funnel'),
+            [row['date'] for row in display.get('history', [])], selection, (theme or 0) % 2 == 0)
+
+    @app.callback(Output('approval-progression-chart', 'figure'),
+                  Input('dashboard-trend-store', 'data'), Input('selected-users-store', 'data'),
+                  Input('theme-toggle', 'n_clicks'), Input('report-location', 'pathname'),
+                  State('dashboard-trend-live', 'data'))
+    def paint_progression_saved(data, users, theme, pathname, live):
+        return progression(data, live, users, theme, pathname)
+
+    @app.callback(Output('approval-progression-chart', 'figure', allow_duplicate=True),
+                  Input('dashboard-trend-live', 'data'), State('dashboard-trend-store', 'data'),
+                  State('selected-users-store', 'data'), State('theme-toggle', 'n_clicks'),
+                  State('report-location', 'pathname'), prevent_initial_call=True)
+    def paint_progression_live(live, data, users, theme, pathname):
+        if not matching_live(data, live):
+            raise dash.exceptions.PreventUpdate
+        return progression(data, live, users, theme, pathname)
 
     return paint_saved, capture, paint_live

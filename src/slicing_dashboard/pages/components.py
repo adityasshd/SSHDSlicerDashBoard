@@ -11,6 +11,8 @@ def chart_graph(**kwargs):
     style = {'height': f'{height}px', 'width': '100%', 'minWidth': 0, **kwargs.pop('style', {})}
     if style.get('height') in ('auto', '100%'):
         style['height'] = f'{height}px'
+    if kwargs.get('id') == 'approval-trend-chart':
+        style['height'] = '420px'
     classes = kwargs.pop('className', '')
     panel = 'glass-panel' in classes
     # Put borders/padding on the wrapper, not inside Plotly's measured surface.
@@ -20,8 +22,10 @@ def chart_graph(**kwargs):
     graph = dcc.Graph(**kwargs, style=style, className='chart-surface ' + classes)
     children = [html.Div(graph, className='chart-viewport')]
     if kwargs.get('id') in ('rework-ratio-chart', 'individual-chart', 'assigned-chart', 'pending-chart'):
-        children.append(html.Div(id=kwargs['id'] + '-status', className='small text-secondary px-3 pb-2',
-                                 **{'aria-live': 'polite'}))
+        children.append(html.Details([
+            html.Summary('Capture details'),
+            html.Div(id=kwargs['id'] + '-status', **{'aria-live': 'polite'}),
+        ], className='chart-details'))
     return html.Div(children,
                     className='chart-frame' + (' glass-panel' if panel else ''))
 
@@ -51,6 +55,7 @@ def add_reporting_shell(existing_layout, today, users=()):
     from slicing_dashboard.pages.user_report import layout_user_report
     from slicing_dashboard.pages.workflow_history import layout_workflow_history
     from slicing_dashboard.pages.settings import layout_settings
+    from slicing_dashboard.pages.status_report import status_stores
 
     container = existing_layout.children[0]
     nodes = list(container.children)
@@ -75,6 +80,7 @@ def add_reporting_shell(existing_layout, today, users=()):
         ], pills=True, className="report-nav mb-3"), **{"aria-label": "Reports navigation"}),
         nodes[1],
         *shared,
+        *status_stores(),
         dcc.Store(id='workflow-sync-store'),
         dcc.Store(id='workflow-read-change'),
         dcc.Store(id='workflow-notice-seen', storage_type='session'),
