@@ -56,7 +56,7 @@ def test_count_checkbox_repaints_without_recapturing_sources(kind):
     source.get_detailed_pending_assigned_df.return_value = pd.DataFrame([
         dict(User='Riya', Stage='New Assigned', Duration=5400, Count=3)])
     source.get_batch_rework_ratio_df.return_value = pd.DataFrame([
-        {'User': 'Riya', 'Total Batches': 3, '1 Rework': 3, 'Tier Duration (hrs)': {'1 Rework': 1.5}}])
+        {'User': 'Riya', 'Completion State': 'Completed', 'Total Batches': 3, '1 Rework': 3, 'Tier Duration (hrs)': {'1 Rework': 1.5}}])
     request = request_for()
     packet = {**capture_panel(source, kind, request['start'], request['end']), 'request_id': request['id']}
     key = next(key for key in namespace['app'].callback_map if GRAPH_IDS[kind]+'.figure' in key and '@' not in key)
