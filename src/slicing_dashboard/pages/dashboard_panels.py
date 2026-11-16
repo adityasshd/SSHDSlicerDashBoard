@@ -6,7 +6,7 @@ from dash import Input, Output, State, dcc, html
 import dash_bootstrap_components as dbc
 
 from slicing_dashboard.reporting.dashboard_panels import (
-    KINDS, capture_panel, saved_panel, panel_frame, selected_summary,
+    KINDS, capture_panel, saved_panel, latest_saved_panel, panel_frame, selected_summary,
 )
 from slicing_dashboard.plots import (
     build_kpi_layout, build_individual_chart, build_rework_ratio_chart,
@@ -36,6 +36,12 @@ def choose_packet(request, saved, live):
         return live, f"Captured {live['captured_at']}"
     if saved and saved.get('available'):
         if viewer_mode():
+            fallback = saved.get('fallback')
+            if fallback:
+                return saved, (
+                    f"STALE · Saved through {fallback['as_of_date']} "
+                    f"(requested through {fallback['requested_end']}); "
+                    f"captured {saved['captured_at']}. Not current.")
             return saved, f"Saved {saved['captured_at']}"
         state = 'Latest check failed' if live else 'Checking latest data'
         return saved, f"Saved {saved['captured_at']} · {state}"
@@ -52,9 +58,12 @@ def render_panel(kind, request, saved, live, selected, theme, roster, show_count
                    else state_figure(status, dark))
         return content, status
     if kind == 'summary':
+        fallback = packet.get('fallback')
+        label = (f"STALE · Through {fallback['as_of_date']} · Not live"
+                 if fallback else 'Updated' if live and live.get('available') else 'Saved capture')
         return build_kpi_layout(selected_summary(packet['data'], selected, roster),
                                 packet['data']['funnel'], dark), html.Span(
-                                    'Updated' if live and live.get('available') else 'Saved capture', title=status)
+                                    label, className='text-warning' if fallback else '', title=status)
     frame = panel_frame(packet)
     if selected is not None and 'User' in frame:
         frame = frame[frame['User'].isin(selected)]
@@ -110,16 +119,26 @@ def register_dashboard_panels(app, manager, roster):
         request = {'id': uuid4().hex, 'start': start, 'end': end,
                    'force': trigger in ('refresh-btn', 'auto-refresh-interval'),
                    'pending_force': trigger in ('workflow-notification-interval', 'workflow-bell')}
+        # A manual refresh in viewer mode reloads MongoDB's persisted snapshot.
+        # Warm Vercel instances otherwise keep an old import-time copy.
+        if viewer_mode() and trigger == 'refresh-btn':
+            manager._load_snapshot()
         # Notification checks affect the current review queue only. A new shared
         # request ID would otherwise restart all five panel capture pipelines.
         if request['pending_force']:
-            packet = saved_panel(manager, 'pending', start, end) or {'available': False}
+            packet = (saved_panel(manager, 'pending', start, end)
+                      or (latest_saved_panel(manager, 'pending', start, end)
+                          if viewer_mode() else None)
+                      or {'available': False})
             return (dash.no_update, request,
                     *[{**packet, 'request_id': request['id']} if kind == 'pending'
                       else dash.no_update for kind in KINDS])
         saved = []
         for kind in KINDS:
-            packet = saved_panel(manager, kind, start, end) or {'available': False}
+            packet = (saved_panel(manager, kind, start, end)
+                      or (latest_saved_panel(manager, kind, start, end)
+                          if viewer_mode() else None)
+                      or {'available': False})
             saved.append({**packet, 'request_id': request['id']})
         return request, request, *saved
 
