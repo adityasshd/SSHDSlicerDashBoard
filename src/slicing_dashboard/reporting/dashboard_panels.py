@@ -1,6 +1,7 @@
 """Compact, scoped chart captures. Reading a saved panel never contacts a source."""
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from hashlib import sha256
 import json
 from threading import RLock
@@ -29,10 +30,10 @@ SUM_FIELDS = ('total_approved_duration', 'prev_approved_duration',
               'total_error_duration', 'prev_error_duration')
 
 
-def panel_key(manager, kind, start, end):
+def panel_key(manager, kind, start, end, *, as_of_date=None):
     if kind not in KINDS:
         raise ValueError('Unknown dashboard panel')
-    scope = [today_iso()] if kind in ('pending', 'assigned') else [start, end]
+    scope = [as_of_date or today_iso()] if kind in ('pending', 'assigned') else [start, end]
     identity = [manager.scraper._base_url, manager.settings.admin_username]
     if kind == 'assigned':
         identity.append('return-date-v1')
@@ -47,6 +48,53 @@ def saved_panel(manager, kind, start, end):
     key = panel_key(manager, kind, start, end)
     with _LOCK:
         return deepcopy(manager._snapshot_payload.get('dashboard_panels', {}).get(key))
+
+
+def latest_saved_panel(manager, kind, start, end, *, max_age_days=7):
+    """Viewer-only fallback for an unavailable *current-day* chart capture.
+
+    Uses the exact same source/mapping identity as normal scoped packets. For
+    summary/completion/rework the reporting period must begin at the same start
+    date; for current inventory the older date-specific snapshot key is used.
+    No snapshot is relabelled as current and custom/historical ranges never
+    receive another period's data.
+    """
+    if end != today_iso() or max_age_days < 1:
+        return None
+    try:
+        start_day, requested_day = date.fromisoformat(start), date.fromisoformat(end)
+    except (TypeError, ValueError):
+        return None
+    if start_day > requested_day:
+        return None
+    india = ZoneInfo("Asia/Kolkata")
+    with _LOCK:
+        panels = manager._snapshot_payload.get('dashboard_panels', {})
+        for age in range(1, max_age_days + 1):
+            candidate = requested_day - timedelta(days=age)
+            if candidate < start_day:
+                break
+            candidate_iso = candidate.isoformat()
+            key = panel_key(manager, kind, start, candidate_iso, as_of_date=candidate_iso)
+            packet = panels.get(key)
+            if not isinstance(packet, dict) or not packet.get('available'):
+                continue
+            # Date from the persisted packet, not the hash, proves when this
+            # particular snapshot was actually collected.
+            try:
+                captured = datetime.fromisoformat(packet['captured_at'].replace('Z', '+00:00'))
+                if captured.tzinfo is None or captured.astimezone(india).date() != candidate:
+                    continue
+            except (KeyError, ValueError, TypeError, AttributeError):
+                continue
+            recovered = deepcopy(packet)
+            recovered['fallback'] = {
+                'as_of_date': candidate_iso, 'requested_end': end,
+                'period_start': start, 'period_end': candidate_iso,
+                'age_days': age,
+            }
+            return recovered
+    return None
 
 
 def attach_panels(manager, payload):
