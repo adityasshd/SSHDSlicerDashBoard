@@ -47,7 +47,7 @@ def register_dashboard_trend(app, manager, render, roster=None):
         figure, note = render(display, users, theme, pathname)
         request_id = (data or {}).get('request_id')
         request = dash.no_update
-        if request_id and not data.get('validation_error') and not viewer_mode():
+        if request_id and not data.get('validation_error') and not data.get('frozen') and not viewer_mode():
             if not matching_live(data, live):
                 note += ' Checking latest completion and approval statuses…'
             if not ready or ready.get('request_id') != request_id:
@@ -58,7 +58,7 @@ def register_dashboard_trend(app, manager, render, roster=None):
     @app.callback(Output('dashboard-trend-live', 'data'),
                   Input('dashboard-trend-ready', 'data'), State('dashboard-trend-store', 'data'))
     def capture(ready, data):
-        if viewer_mode():
+        if viewer_mode() or (data or {}).get('frozen'):
             raise dash.exceptions.PreventUpdate
         if not matching_live(data, ready):
             raise dash.exceptions.PreventUpdate
