@@ -62,8 +62,9 @@ def test_count_checkbox_repaints_without_recapturing_sources(kind):
     key = next(key for key in namespace['app'].callback_map if GRAPH_IDS[kind]+'.figure' in key and '@' not in key)
     callback = namespace['app'].callback_map[key]
     assert {'id': GRAPH_IDS[kind]+'-counts', 'property': 'value'} in callback['inputs']
+    selector = ['All'] if kind == 'rework' else []
     figure, _, ready, _ = callback['callback'].__wrapped__(
-        request, packet, None, 0, ['counts'], None, '/', {'request_id': request['id']})
+        request, packet, None, 0, ['counts'], *selector, None, '/', {'request_id': request['id']})
     assert ready is dash.no_update
     assert any('01:30 / 3' == item.text for item in figure.layout.annotations)
     manager.get_batch_rework_ratio_df.assert_not_called()
