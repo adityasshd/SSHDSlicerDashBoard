@@ -33,7 +33,13 @@ def test_previous_day_fallback_is_explicit_and_does_not_change_original(kind):
             "age_days": 1,
         }
         assert "fallback" not in manager._snapshot_payload["dashboard_panels"][previous]
-        assert latest_saved_panel(manager, kind, "2026-11-02", "2026-11-17") is None
+        # Pending/assigned inventory is scoped to its observation day,
+        # whereas completed/rework/KPI panels also depend on period start.
+        changed_start = latest_saved_panel(manager, kind, "2026-11-02", "2026-11-17")
+        if kind in ("pending", "assigned"):
+            assert changed_start is not None
+        else:
+            assert changed_start is None
         # Historic or custom ranges never silently fall back to a different date.
         assert latest_saved_panel(manager, kind, "2026-11-01", "2026-11-15") is None
         assert latest_saved_panel(manager, kind, "2026-11-17", "2026-11-17") is None
