@@ -19,7 +19,7 @@ from slicing_dashboard.reporting.dashboard_panels import KINDS
 SCHEMA_VERSION = 1
 COLLECTION = "settlement_snapshots"
 ENCODING = "zlib-base64-v1"
-MAX_COMPRESSED_BYTES = 12 * 1024 * 1024
+MAX_COMPRESSED_BYTES = 10 * 1024 * 1024  # base64 expansion stays below MongoDB's 16 MiB document limit
 _INDIA = ZoneInfo("Asia/Kolkata")
 
 
