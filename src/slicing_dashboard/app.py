@@ -37,6 +37,7 @@ from slicing_dashboard.plots.tables import register_duration_table_callbacks
 from slicing_dashboard.plots.guardrails import state_figure
 from slicing_dashboard.management.ui import layout_settlement_management, layout_user_mapping, register_management_callbacks
 from slicing_dashboard.management.periods import today_iso
+from slicing_dashboard.reporting.settlement_snapshots import manager_snapshot, period_for_range, period_for_selection
 from slicing_dashboard.processing.daily_work import EXCLUDED
 from slicing_dashboard.pages.components import add_reporting_shell, contain_graphs
 from slicing_dashboard.pages.dashboard_panels import panel_stores, register_dashboard_panels
@@ -848,6 +849,17 @@ def quick_filters(btn_today, dropdown_val, n_intervals, selected_start, selected
     raise dash.exceptions.PreventUpdate
 
 
+@app.callback(
+    Output("date-from", "disabled"), Output("date-to", "disabled"),
+    Output("btn-today", "disabled"),
+    Input("settlement-dropdown", "value"),
+)
+def freeze_settled_period_filters(period_value):
+    """Closed settlements are exact snapshots, not arbitrary date slices."""
+    frozen = period_for_selection(dm.get_available_periods(), period_value) is not None
+    return frozen, frozen, frozen
+
+
 def _build_status_badge(status: dict):
     if viewer_mode():
         return html.Span('Saved reports', className='badge bg-secondary me-2',
@@ -1204,6 +1216,16 @@ def load_dashboard_trend(end_date, n_clicks, n_intervals, pathname, start_date=N
     options = {'force_refresh': trigger in ("refresh-btn", "auto-refresh-interval")}
     if start_date:
         options['start_date'] = start_date
+        closed = period_for_range(dm.get_available_periods(), start_date, end_date)
+        if closed is not None:
+            try:
+                frozen = manager_snapshot(dm, start_date, end_date)
+            except (ValueError, KeyError, TypeError):
+                return {'validation_error': 'This settlement snapshot is damaged or unreadable.'}
+            if frozen is None:
+                return {'validation_error': 'No verified historical snapshot is available for this settlement.'}
+            return {**frozen['trend'], 'request_id': uuid4().hex,
+                    'frozen': True, 'force_refresh': False}
     try:
         return {**dm.get_dashboard_trend_data(min(end_date, today_iso()), **options),
                 'request_id': uuid4().hex, 'force_refresh': options['force_refresh']}
