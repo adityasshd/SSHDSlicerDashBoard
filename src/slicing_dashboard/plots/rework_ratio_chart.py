@@ -36,7 +36,7 @@ def build_rework_ratio_chart(
     effective_users: list | None = None,
     is_filtering: bool = False,
     show_counts: bool = False,
-    completion_state: str = "Completed",
+    completion_state: str = "All",
 ):
     """Build a user × return-tier heatmap of actual batch hours or batch counts.
 
