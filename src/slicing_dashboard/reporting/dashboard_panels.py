@@ -14,7 +14,7 @@ KINDS = ('summary', 'completion', 'rework', 'assigned', 'pending')
 VERSION = 2
 _LOCK = RLock()
 FRAME_COLUMNS = {
-    'completion': ('User', 'Completed Duration'),
+    'completion': ('User', 'Completed Duration', 'Completed Tasks'),
     'pending': ('User', 'Stage', 'Duration', 'Count', 'IDs'),
     'assigned': ('User', 'Stage', 'Duration', 'Count', 'IDs', 'ID', 'AssignedDate', 'DaysAssigned',
                  'AssignmentDateBasis', 'ReturnedDate', 'DaysReturned'),
@@ -23,10 +23,10 @@ FRAME_COLUMNS = {
                '4 Reworks', '5+ Reworks', '5+ Return Count', 'Reworked Once', 'Reworked Twice+',
                'Total Duration (hrs)', 'Avg Batch Duration (hrs)', 'Tier IDs'),
 }
-SUM_FIELDS = ('total_approved_duration', 'prev_approved_duration', 'total_error_duration',
-              'prev_error_duration', 'rework_duration', 'prev_rework_duration', 'total_tasks',
-              'completed_tasks', 'prev_completed_tasks', 'total_pending_duration',
-              'leader_review_duration', 'auditor_review_duration', 'admin_review_duration')
+SUM_FIELDS = ('total_approved_duration', 'prev_approved_duration',
+              'total_pending_duration', 'leader_review_duration', 'auditor_review_duration',
+              'admin_review_duration', 'rework_duration', 'prev_rework_duration',
+              'total_error_duration', 'prev_error_duration')
 
 
 def panel_key(manager, kind, start, end):
@@ -91,7 +91,6 @@ def selected_summary(data, users, roster):
         ('approved', 'total_approved_duration', 'prev_approved_duration'),
         ('error', 'total_error_duration', 'prev_error_duration'),
         ('rework', 'rework_duration', 'prev_rework_duration'),
-        ('completed', 'completed_tasks', 'prev_completed_tasks'),
     ):
         result[label + '_pct'] = ((result[current] - result[previous]) / result[previous] * 100
                                   if result[previous] else 0.0)

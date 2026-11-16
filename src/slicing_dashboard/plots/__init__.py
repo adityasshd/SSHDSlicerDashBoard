@@ -6,7 +6,8 @@ Import everything through this package for convenience.
 """
 
 from slicing_dashboard.plots.theme import USER_COLORS, format_seconds, theme_ctx, empty_fig
-from slicing_dashboard.plots.kpi_cards import build_kpi_layout, make_kpi_card
+from slicing_dashboard.plots.kpi_cards import make_kpi_card
+from slicing_dashboard.plots.kpi_overview import build_kpi_layout
 from slicing_dashboard.plots.cumulative_chart import build_cumulative_chart
 from slicing_dashboard.plots.individual_chart import build_individual_chart
 from slicing_dashboard.plots.pending_chart import build_pending_chart

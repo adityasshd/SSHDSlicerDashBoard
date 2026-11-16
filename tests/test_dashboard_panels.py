@@ -37,13 +37,90 @@ def fixture_manager():
     manager.get_detailed_pending_assigned_df.return_value = frame
     manager.fetch_dashboard_data.return_value = {'breakdowns': {'slice_funnel': []}}
     manager.get_summary_kpis.return_value = {**{key: 1 for key in SUM_FIELDS},
-        'approved_pct': 0, 'error_pct': 0, 'rework_pct': 0, 'completed_pct': 0,
+        'approved_pct': 0, 'error_pct': 0, 'rework_pct': 0,
         'assignable_duration': 0, 'assignable_count': 0}
     return manager
 
 
 def request_for(identity='one'):
     return {'id': identity, 'start': '2026-10-01', 'end': '2026-10-08', 'force': False, 'pending_force': False}
+
+
+@pytest.mark.parametrize('kind', ['pending', 'rework', 'assigned'])
+def test_count_checkbox_repaints_without_recapturing_sources(kind):
+    from slicing_dashboard.pages.dashboard_panels import GRAPH_IDS
+    namespace, manager = application_namespace()
+    source = fixture_manager()
+    source.get_pending_review_df.return_value = pd.DataFrame([
+        dict(User='Riya', Stage='Pending Leader', Duration=5400, Count=3)])
+    source.get_detailed_pending_assigned_df.return_value = pd.DataFrame([
+        dict(User='Riya', Stage='New Assigned', Duration=5400, Count=3)])
+    source.get_batch_rework_ratio_df.return_value = pd.DataFrame([
+        {'User': 'Riya', 'Total Batches': 3, '1 Rework': 3, 'Tier Duration (hrs)': {'1 Rework': 1.5}}])
+    request = request_for()
+    packet = {**capture_panel(source, kind, request['start'], request['end']), 'request_id': request['id']}
+    key = next(key for key in namespace['app'].callback_map if GRAPH_IDS[kind]+'.figure' in key and '@' not in key)
+    callback = namespace['app'].callback_map[key]
+    assert {'id': GRAPH_IDS[kind]+'-counts', 'property': 'value'} in callback['inputs']
+    figure, _, ready, _ = callback['callback'].__wrapped__(
+        request, packet, None, 0, ['counts'], None, '/', {'request_id': request['id']})
+    assert ready is dash.no_update
+    assert any('01:30 / 3' == item.text for item in figure.layout.annotations)
+    manager.get_batch_rework_ratio_df.assert_not_called()
+    manager.get_pending_review_df.assert_not_called()
+    manager.get_detailed_pending_assigned_df.assert_not_called()
+
+
+@pytest.mark.parametrize('theme', [0, 1])
+def test_main_dashboard_serves_new_overview_and_rework_metric_through_real_callbacks(theme):
+    namespace, manager = application_namespace()
+    app = namespace['app']
+    source = fixture_manager()
+    source.get_batch_rework_ratio_df.return_value = pd.DataFrame([
+        {'User': 'Riya', 'Total Batches': 1, 'No Rework': 1, 'Tier Duration (hrs)': {'No Rework': 2.5}},
+    ])
+    summary = capture_panel(source, 'summary', '2026-10-01', '2026-10-08')
+    rework = capture_panel(source, 'rework', '2026-10-01', '2026-10-08')
+    client = app.server.test_client()
+    assert client.get('/').status_code == 200
+    assert client.get('/assets/kpi_overview.css').status_code == 200
+
+    values = {'dashboard-panel-request': request_for(),
+              'dashboard-saved-summary': {**summary, 'request_id': 'one'},
+              'dashboard-live-summary': None, 'dashboard-ready-summary': None,
+              'selected-users-store': ['Riya'], 'theme-toggle': theme, 'report-location': '/'}
+
+    def update(key):
+        callback = app.callback_map[key]
+        outputs = callback['output']
+        output_specs = ([{'id': out.component_id, 'property': out.component_property} for out in outputs]
+                        if isinstance(outputs, list) else
+                        {'id': outputs.component_id, 'property': outputs.component_property})
+        response = client.post('/_dash-update-component', json={
+            'output': key, 'outputs': output_specs,
+            'inputs': [{**item, 'value': values[item['id']]} for item in callback['inputs']],
+            'state': [{**item, 'value': values[item['id']]} for item in callback['state']],
+            'changedPropIds': ['dashboard-panel-request.data'],
+        })
+        assert response.status_code == 200, response.get_data(as_text=True)
+        return response.get_json()['response']
+
+    key = next(key for key in app.callback_map if 'dashboard-ready-summary.data' in key)
+    overview = update(key)['kpi-cards']['children']
+    assert len(overview) == 1
+    props = overview[0]['props']
+    assert ('theme-dark' if theme == 0 else 'theme-light') in props['className']
+    assert [child['props'].get('className') for child in props['children'][1:]] == [
+        'kpiu-main', 'kpiu-rework', 'kpiu-metrics']
+    assert 'kpi-card"' not in json.dumps(overview)
+
+    values.update({'kpi-cards': overview, 'dashboard-saved-rework': {**rework, 'request_id': 'one'},
+                   'dashboard-live-rework': None})
+    content = update('kpi-rework-breakdown.children')['kpi-rework-breakdown']['children']
+    assert '02:30:00' in json.dumps(content)
+    manager.fetch_dashboard_data.assert_not_called()
+    manager.get_summary_kpis.assert_not_called()
+    manager.get_batch_rework_ratio_df.assert_not_called()
 
 
 def test_saved_request_and_render_do_no_source_reads_and_have_no_live_input():

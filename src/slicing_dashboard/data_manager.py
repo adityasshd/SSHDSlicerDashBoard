@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 from slicing_dashboard.config import get_settings
 from slicing_dashboard.scraper.http_scraper import HTTPScraper
+from slicing_dashboard.reporting.kpi_overview import ordered_kpis
 
 
 from collections import defaultdict
@@ -628,11 +629,10 @@ class DataManager:
 
             raw_data = self.fetch_dashboard_data(start_date, end_date, force_refresh)
             metrics = raw_data.get('metrics', {})
+            funnel_map = {row['key']: row for row in raw_data.get('breakdowns', {}).get('slice_funnel', [])}
 
             if selected_users:
                 c_dur = 0.0
-                c_cnt = 0
-                t_cnt = 0
                 rew_dur = 0.0
                 err_dur = 0.0
                 lead_dur = 0.0
@@ -643,8 +643,6 @@ class DataManager:
                     canonical = self._get_canonical_name(it.get('user_id'), raw_u)
                     if canonical in selected_users:
                         c_dur += float(it.get('completed_duration_seconds', 0) or 0)
-                        c_cnt += int(it.get('completed_count', 0) or 0)
-                        t_cnt += int(it.get('total_count', 0) or 0)
                         rew_dur += float(it.get('rework_duration_seconds', 0) or 0)
                         err_dur += float(it.get('error_review_duration_seconds', 0) or 0)
                         lead_dur += float(it.get('leader_review_duration_seconds', 0) or 0)
@@ -652,7 +650,6 @@ class DataManager:
                         adm_dur += float(it.get('admin_review_duration_seconds', 0) or 0)
 
                 p_dur = 0.0
-                p_cnt = 0
                 p_rew_dur = 0.0
                 p_err_dur = 0.0
                 for it in prev_items:
@@ -660,31 +657,26 @@ class DataManager:
                     canonical = self._get_canonical_name(it.get('user_id'), raw_u)
                     if canonical in selected_users:
                         p_dur += float(it.get('completed_duration_seconds', 0) or 0)
-                        p_cnt += int(it.get('completed_count', 0) or 0)
                         p_rew_dur += float(it.get('rework_duration_seconds', 0) or 0)
                         p_err_dur += float(it.get('error_review_duration_seconds', 0) or 0)
 
-                return {
+                return ordered_kpis({
                     'total_approved_duration': c_dur,
                     'prev_approved_duration': p_dur,
                     'approved_pct': calc_pct(c_dur, p_dur),
-                    'total_error_duration': err_dur,
-                    'prev_error_duration': p_err_dur,
-                    'error_pct': calc_pct(err_dur, p_err_dur),
-                    'rework_duration': rew_dur,
-                    'prev_rework_duration': p_rew_dur,
-                    'rework_pct': calc_pct(rew_dur, p_rew_dur),
-                    'total_tasks': t_cnt,
-                    'completed_tasks': c_cnt,
-                    'prev_completed_tasks': p_cnt,
-                    'completed_pct': calc_pct(c_cnt, p_cnt),
-                    **pool_metrics,
-                    'total_backlog_duration': metrics.get('slice_backlog_duration_seconds', 0),
                     'total_pending_duration': lead_dur + aud_dur + adm_dur,
                     'leader_review_duration': lead_dur,
                     'auditor_review_duration': aud_dur,
                     'admin_review_duration': adm_dur,
-                }
+                    **pool_metrics,
+                    'rework_duration': rew_dur,
+                    'prev_rework_duration': p_rew_dur,
+                    'rework_pct': calc_pct(rew_dur, p_rew_dur),
+                    'total_error_duration': err_dur,
+                    'prev_error_duration': p_err_dur,
+                    'error_pct': calc_pct(err_dur, p_err_dur),
+                    'total_backlog_duration': metrics.get('slice_backlog_duration_seconds', 0),
+                }, funnel_map)
 
             lead_dur = float(curr_summary.get('leader_review_duration_seconds', 0) or 0)
             aud_dur = float(curr_summary.get('auditor_review_duration_seconds', 0) or 0)
@@ -695,55 +687,46 @@ class DataManager:
             prev_err_dur = float(prev_summary.get('error_review_duration_seconds', 0) or 0)
             curr_rew_dur = float(curr_summary.get('rework_duration_seconds', 0) or 0)
             prev_rew_dur = float(prev_summary.get('rework_duration_seconds', 0) or 0)
-            curr_comp_cnt = int(curr_summary.get('completed_count', 0) or 0)
-            prev_comp_cnt = int(prev_summary.get('completed_count', 0) or 0)
 
-            return {
+            return ordered_kpis({
                 'total_approved_duration': curr_comp_dur,
                 'prev_approved_duration': prev_comp_dur,
                 'approved_pct': calc_pct(curr_comp_dur, prev_comp_dur),
-                'total_error_duration': curr_err_dur,
-                'prev_error_duration': prev_err_dur,
-                'error_pct': calc_pct(curr_err_dur, prev_err_dur),
-                'rework_duration': curr_rew_dur,
-                'prev_rework_duration': prev_rew_dur,
-                'rework_pct': calc_pct(curr_rew_dur, prev_rew_dur),
-                'total_tasks': int(curr_summary.get('total_count', 0) or 0),
-                'completed_tasks': curr_comp_cnt,
-                'prev_completed_tasks': prev_comp_cnt,
-                'completed_pct': calc_pct(curr_comp_cnt, prev_comp_cnt),
-                **pool_metrics,
-                'total_backlog_duration': metrics.get('slice_backlog_duration_seconds', 0),
                 'total_pending_duration': lead_dur + aud_dur + adm_dur,
                 'leader_review_duration': lead_dur,
                 'auditor_review_duration': aud_dur,
                 'admin_review_duration': adm_dur,
-            }
+                **pool_metrics,
+                'rework_duration': curr_rew_dur,
+                'prev_rework_duration': prev_rew_dur,
+                'rework_pct': calc_pct(curr_rew_dur, prev_rew_dur),
+                'total_error_duration': curr_err_dur,
+                'prev_error_duration': prev_err_dur,
+                'error_pct': calc_pct(curr_err_dur, prev_err_dur),
+                'total_backlog_duration': metrics.get('slice_backlog_duration_seconds', 0),
+            }, funnel_map)
         except Exception as e:
             print(f"Warning: Failed to fetch summary KPIs from efficiency API: {e}. Falling back to overview.")
             data = self.fetch_dashboard_data(start_date, end_date, force_refresh)
             metrics = data.get('metrics', {})
-            return {
+            funnel_map = {row['key']: row for row in data.get('breakdowns', {}).get('slice_funnel', [])}
+            return ordered_kpis({
                 'total_approved_duration': metrics.get('slice_completed_duration_seconds', 0),
                 'prev_approved_duration': 0.0,
                 'approved_pct': 0.0,
-                'total_error_duration': metrics.get('error_video_output_duration_seconds', 0),
-                'prev_error_duration': 0.0,
-                'error_pct': 0.0,
-                'rework_duration': metrics.get('overview_slice_rework_submitted_duration_seconds', 0),
-                'prev_rework_duration': 0.0,
-                'rework_pct': 0.0,
-                'total_tasks': metrics.get('total_tasks', 0),
-                'completed_tasks': metrics.get('slice_completed_count', 0),
-                'prev_completed_tasks': 0,
-                'completed_pct': 0.0,
-                **pool_metrics,
-                'total_backlog_duration': metrics.get('slice_backlog_duration_seconds', 0),
                 'total_pending_duration': metrics.get('review_pending_duration_seconds', 0),
                 'leader_review_duration': 0.0,
                 'auditor_review_duration': 0.0,
                 'admin_review_duration': 0.0,
-            }
+                **pool_metrics,
+                'rework_duration': metrics.get('overview_slice_rework_submitted_duration_seconds', 0),
+                'prev_rework_duration': 0.0,
+                'rework_pct': 0.0,
+                'total_error_duration': metrics.get('error_video_output_duration_seconds', 0),
+                'prev_error_duration': 0.0,
+                'error_pct': 0.0,
+                'total_backlog_duration': metrics.get('slice_backlog_duration_seconds', 0),
+            }, funnel_map)
 
     def get_user_breakdown_df(self, start_date: str, end_date: str,
         force_refresh: bool=False) -> pd.DataFrame:

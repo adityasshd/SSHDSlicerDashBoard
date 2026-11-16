@@ -10,7 +10,6 @@ from slicing_dashboard.runtime import configure_numeric_threads, ReadExecutor as
 configure_numeric_threads()
 
 import dash
-import sys
 import dash_bootstrap_components as dbc
 import pandas as pd
 from functools import wraps
@@ -230,13 +229,13 @@ app.layout = html.Div(
                 # ── Server Status Offline Banner ─────────────────────
                 html.Div(id="server-status-banner"),
 
-                # ── KPI Cards (flex grid — all 7 in one row) ─────────
+                # ── Unified KPI overview ────────────────────────────
                 html.Div([
                     html.Div([html.Span('OVERVIEW', className='dashboard-eyebrow'),
                               html.H1('Slicing performance')]),
                     html.Span('Team activity', className='dashboard-period-badge'),
                 ], className='dashboard-heading'),
-                html.Div(id="kpi-cards", className="kpi-grid mb-2"),
+                html.Div(id="kpi-cards", className="kpi-overview-container mb-2"),
 
                 dcc.Store(id="dashboard-trend-store"),
                 html.Section([
@@ -276,70 +275,33 @@ app.layout = html.Div(
                     n_intervals=0,
                 ),
 
-                # ── Chart row 1: Rework Ratio (50%) + Completed Duration (50%) ─────
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            dcc.Graph(
-                                id="rework-ratio-chart",
-                                figure=_initial_fig,
-                                config=_graph_cfg,
-                                className="glass-panel p-1 rounded shadow-sm chart-compact",
-                                style=_graph_style,
-                            ),
-                            width=12,
-                            lg=6,
-                            className="mb-2 mb-lg-0",
-                        ),
-                        dbc.Col(
-                            dcc.Graph(
-                                id="individual-chart",
-                                figure=_initial_fig,
-                                config=_graph_cfg,
-                                className="glass-panel p-1 rounded shadow-sm chart-compact",
-                                style=_graph_style,
-                            ),
-                            width=12,
-                            lg=6,
-                            className="mb-2 mb-lg-0",
-                        ),
-                    ],
-                    className="mb-2",
-                    style={"display": "flex", "alignItems": "stretch"},
-                ),
+                # Completed output and the shared team filter stay together.
+                dbc.Row([
+                    dbc.Col(dcc.Graph(
+                        id="individual-chart", figure=_initial_fig, config=_graph_cfg,
+                        className="glass-panel p-1 rounded shadow-sm chart-compact",
+                        style=_graph_style,
+                    ), width=12, lg=9),
+                    dbc.Col(dcc.Graph(
+                        id="universal-legend", figure=_initial_fig, config=_graph_cfg,
+                        className="glass-panel p-1 rounded shadow-sm chart-compact",
+                        style=_graph_style,
+                    ), width=12, lg=3),
+                ], className="dashboard-chart-row dashboard-completion-row"),
 
-                # ── Chart row 2: Pending reviews + Legend ───────────
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            dcc.Graph(
-                                id="pending-chart",
-                                figure=_initial_fig,
-                                config=_graph_cfg,
-                                className="glass-panel p-1 rounded shadow-sm chart-compact",
-                                style=_graph_style,
-                            ),
-                            width=12,
-                            lg=9,
-                            className="mb-2 mb-lg-0",
-                        ),
-                        dbc.Col(
-                            dcc.Graph(
-                                id="universal-legend",
-                                figure=_initial_fig,
-                                config=_graph_cfg,
-                                className="glass-panel p-1 rounded shadow-sm chart-compact",
-                                style=_graph_style,
-                            ),
-                            width=12,
-                            lg=3,
-                            className="mb-2 mb-lg-0",
-                        ),
-                    ],
-                    className="mb-2",
-                    style={"display": "flex", "alignItems": "stretch"},
-                ),
-
+                # Comparable matrices share a row and the same responsive height.
+                dbc.Row([
+                    dbc.Col(dcc.Graph(
+                        id="rework-ratio-chart", figure=_initial_fig, config=_graph_cfg,
+                        className="glass-panel p-1 rounded shadow-sm chart-compact",
+                        style=_graph_style,
+                    ), width=12, lg=6),
+                    dbc.Col(dcc.Graph(
+                        id="pending-chart", figure=_initial_fig, config=_graph_cfg,
+                        className="glass-panel p-1 rounded shadow-sm chart-compact",
+                        style=_graph_style,
+                    ), width=12, lg=6),
+                ], className="dashboard-chart-row dashboard-matrix-row"),
                 # ── Chart row 3: Assigned & Rework by ID (Dynamic Height) ──
                 dbc.Row(
                     [
@@ -1321,12 +1283,10 @@ def render_return_reasons_chart(start_date, end_date, selected_users, theme_clic
     )
 
 
-def run_local(port=8050):
-    # Werkzeug's Windows process reloader can close the serving thread's socket.
-    # Keep debug tools available and restart manually after Python edits on Windows.
-    reload_code = sys.platform != 'win32'
-    app.run(debug=True, dev_tools_ui=False, port=port, use_reloader=reload_code,
-            dev_tools_hot_reload=reload_code)
+def run_local(port=8000, *, reload=True):
+    """Reload local Python code and browser assets on every supported platform."""
+    app.run(debug=True, dev_tools_ui=False, port=port, use_reloader=reload,
+            reloader_type='stat', dev_tools_hot_reload=reload)
 
 
 if __name__ == "__main__":

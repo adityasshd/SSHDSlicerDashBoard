@@ -44,7 +44,7 @@ def _get_rework_color(days: float) -> str:
 
 
 @safe_chart
-def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
+def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool, show_counts=False) -> go.Figure:
     """Build horizontal stacked bar chart of assigned videos segmented by ID.
 
     Each slicer's bar is stacked by their assigned accounts/IDs.
@@ -77,7 +77,7 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
     if "ID" not in df.columns:
         df["ID"] = df.get("IDs", df["User"])
     if "Count" not in df.columns:
-        df["Count"] = 0
+        df["Count"] = None
     today = date.fromisoformat(today_iso())
     def _calc_days(value):
         try:
@@ -172,7 +172,7 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
             raw_id = str(row["ID"])
             dur_sec = float(row["Duration"])
             dur_hours = dur_sec / 3600.0
-            cnt = int(row["Count"])
+            cnt = int(row["Count"]) if pd.notna(row["Count"]) else None
             days = float(row["DaysAssigned"])
             date_str = str(row["AssignedDate"])
             return_days = float(row['DaysReturned'])
@@ -192,6 +192,8 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
             
             # Show ID on bar if block is wide enough
             in_bar_text = f"{raw_id}" if dur_hours >= 0.7 else (f"{fmt_dur}" if dur_hours >= 0.4 else "")
+            if show_counts:
+                in_bar_text = f'{format_seconds(dur_sec, compact=True)} / {cnt if cnt is not None else "—"}'
 
             # Ensure legible text contrast
             text_color = "#0f172a" if (color in ["#86efac", "#4ade80", "#22c55e", "#fda4af", "#fb7185"]) else "#ffffff"
@@ -217,7 +219,7 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
             hovertemplate=(
                 "<b>%{y}</b><br>"
                 "%{customdata[1]}<br>"
-                "%{customdata[0]}<br>"
+                "%{customdata[0]}<br>%{customdata[2]} tasks<br>"
                 "ID: %{customdata[3]}<br>"
                 "Assigned on: %{customdata[4]}%{customdata[6]}<extra></extra>"
             ), showlegend=False,
@@ -275,4 +277,4 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
     if errors:
         fig.add_annotation(text="Current assignment data incomplete; refresh to retry",
                            x=.5, y=1.1, xref='paper', yref='paper', showarrow=False)
-    return add_bar_total_labels(fig, 'h')
+    return add_bar_total_labels(fig, 'h', count_index=2 if show_counts else None)

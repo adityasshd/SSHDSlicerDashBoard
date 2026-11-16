@@ -65,7 +65,8 @@ async function evaluate(expression) {
 async function until(expression, timeout = 20000) {
     const start = Date.now();
     while (Date.now() - start < timeout) {
-        if (await evaluate(expression)) return;
+        const result = await evaluate(expression);
+        if (result) return result;
         await new Promise(accept => setTimeout(accept, 150));
     }
     throw new Error('Timed out: ' + expression);
@@ -170,32 +171,117 @@ try {
         const screenshot = await call('Page.captureScreenshot', {format: 'png'});
         await writeFile(`${root}/dark-controls.png`, Buffer.from(screenshot.data, 'base64'));
     }
-    if (process.argv[2] === 'rework') {
+    if (['rework', 'intensity'].includes(process.argv[2])) {
         await qaFetch(qaOrigin + '/qa/scenario', {method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({mode: 'tiers', seed_panels: true})});
-        const rework = `document.querySelector('#rework-ratio-chart .js-plotly-plot')`;
+            body: JSON.stringify({mode: 'tiers', team_size: 0, pending_limit: 999,
+                seed_panels: true, auditor_seconds: 7200, admin_seconds: 1800})});
         for (const width of [390, 1366]) {
             await call('Emulation.setDeviceMetricsOverride', {width, height: 950, deviceScaleFactor: 1, mobile: false});
             await call('Page.navigate', {url: qaOrigin + '/'});
-            await until(`${rework}?.data?.[3]?.customdata?.[0]?.[6] === '15:00:00'`);
-            await evaluate(`document.querySelector('#rework-ratio-chart').scrollIntoView({block:'center',behavior:'instant'})`);
-            const hovers = [];
-            for (const [index, hours] of ['01:00:00', '02:00:00', '03:00:00', '15:00:00'].entries()) {
-                const pointer = await evaluate(`(() => {
-                    const r = ${rework}.querySelectorAll('.trace.bars')[${index}].querySelector('.point path').getBoundingClientRect();
-                    return {x: r.left + r.width / 2, y: r.top + r.height / 2};
-                })()`);
-                await call('Input.dispatchMouseEvent', {type: 'mouseMoved', ...pointer});
-                await until(`document.querySelector('.chart-tooltip:not([hidden])')?.textContent.includes('Duration: ${hours}')`);
-                const text = await evaluate(`document.querySelector('.chart-tooltip:not([hidden])').textContent`);
-                if ((text.match(/Duration:/g) || []).length !== 1 || text.includes('21:00:00'))
-                    throw new Error('Rework hover contains unrelated stack hours');
-                hovers.push(text);
+            await until(`document.querySelector('#rework-ratio-chart .js-plotly-plot')?.data?.[0]?.customdata?.[0]?.[3]?.[6] === '15:00:00'`);
+            await until(`document.querySelector('#pending-chart .js-plotly-plot')?.data?.[0]?.type === 'heatmap'`);
+            await until(`document.querySelector('#individual-chart .js-plotly-plot')?.data?.[0]?.type === 'scatter'`);
+            await until(`['rework-ratio-chart','pending-chart','individual-chart','assigned-chart'].every(id=>document.querySelector('#'+id+'-status')?.textContent.startsWith('Captured '))`);
+            await until(`!Array.from(document.querySelectorAll('[data-dash-is-loading="true"]')).some(${visible})`);
+            for (const light of [false, true]) {
+                if (light) {
+                    await evaluate(`document.querySelector('#theme-toggle').click()`);
+                    await until(`!document.querySelector('#main-container').className.includes('dark')`);
+                    await until(`['pending-chart','rework-ratio-chart'].every(id=>document.querySelector('#'+id+' .js-plotly-plot').data[0].colorscale[0][1] === '#edf5ed')`);
+                    await until(`!Array.from(document.querySelectorAll('[data-dash-is-loading="true"]')).some(${visible})`);
+                }
+                await new Promise(accept=>setTimeout(accept, 250));
+                const checks = [];
+                for (const id of ['rework-ratio-chart', 'pending-chart', 'individual-chart', 'assigned-chart']) {
+                    await call('Input.dispatchMouseEvent', {type: 'mouseMoved', x: 1, y: 1});
+                    await evaluate(`document.querySelector('#${id}').scrollIntoView({block:'center',behavior:'instant'})`);
+                    // Locate a cell/point using the rendered Plotly axes.
+                    const pointer = await evaluate(`(() => {
+                        const p = document.querySelector('#${id} .js-plotly-plot'), r=p.getBoundingClientRect();
+                        const x=p._fullLayout.xaxis, y=p._fullLayout.yaxis;
+                        if (p.data[0].type === 'heatmap') return {x:r.left+x._offset+x.l2p(0),y:r.top+y._offset+y.l2p(0)};
+                        const point=p.querySelector('.scatterlayer .point, .barlayer .point path').getBoundingClientRect();
+                        return {x:point.left+point.width/2,y:point.top+point.height/2};
+                    })()`);
+                    await call('Input.dispatchMouseEvent', {type: 'mouseMoved', ...pointer});
+                    const hover = await until(`(() => {
+                        const p=document.querySelector('#${id} .js-plotly-plot'),tip=document.querySelector('.chart-tooltip:not([hidden])');
+                        const native=p.querySelector('.hovertext path');
+                        if (!tip || !native || getComputedStyle(native).fill !== getComputedStyle(tip).backgroundColor) return false;
+                        return {id:'${id}', text:tip.textContent, background:getComputedStyle(tip).backgroundColor,
+                            native:native ? getComputedStyle(native).fill : null,
+                            cell:p.data[0].type === 'heatmap' ? p.data[0].hoverlabel.bgcolor[0][0] : null,
+                            right:tip.getBoundingClientRect().right, width:innerWidth};
+                    })()`);
+                    if (hover.native !== hover.background || hover.right > hover.width ||
+                        (hover.cell && hover.cell !== hover.background)) throw new Error('Tooltip color or bounds mismatch: '+JSON.stringify(hover));
+                    checks.push(hover);
+                    if (id === 'rework-ratio-chart' && !hover.text.includes('01:00:00')) throw new Error('Wrong tier duration');
+                    if (id === 'pending-chart' && !hover.text.includes('Pending Leader')) throw new Error('Wrong review stage');
+                    if (['pending-chart', 'rework-ratio-chart', 'assigned-chart'].includes(id)) {
+                        const before = await evaluate(`JSON.stringify(document.querySelector('#${id} .js-plotly-plot').data.map(t=>({x:t.x,y:t.y,z:t.z})))`);
+                        const captures = callbackRequests.filter(row=>row.output.startsWith('dashboard-live-')).length;
+                        const control = `document.querySelector('#${id}-counts input[type="checkbox"]')`;
+                        await evaluate(`${control}.scrollIntoView({block:'center',behavior:'instant'})`);
+                        const checkbox = await evaluate(`(() => {const r=${control}.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()`);
+                        await call('Input.dispatchMouseEvent', {type:'mousePressed',button:'left',clickCount:1,...checkbox});
+                        await call('Input.dispatchMouseEvent', {type:'mouseReleased',button:'left',clickCount:1,...checkbox});
+                        await until(`${control}.checked && document.querySelector('#${id} .js-plotly-plot').layout.annotations.some(a=>a.text.includes(' / '))`);
+                        const after = await evaluate(`JSON.stringify(document.querySelector('#${id} .js-plotly-plot').data.map(t=>({x:t.x,y:t.y,z:t.z})))`);
+                        const labels = await evaluate(`document.querySelector('#${id} .js-plotly-plot').layout.annotations.map(a=>a.text)`);
+                        if (before !== after) throw new Error('Count checkbox changed chart values: '+id);
+                        if (callbackRequests.filter(row=>row.output.startsWith('dashboard-live-')).length !== captures) throw new Error('Count checkbox restarted source reads: '+id);
+                        checks.push({id,combinedLabels:labels});
+                        await evaluate(`${control}.scrollIntoView({block:'center',behavior:'instant'})`);
+                        const reset = await evaluate(`(() => {const r=${control}.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()`);
+                        await call('Input.dispatchMouseEvent', {type:'mousePressed',button:'left',clickCount:1,...reset});
+                        await call('Input.dispatchMouseEvent', {type:'mouseReleased',button:'left',clickCount:1,...reset});
+                        await until(`!${control}.checked && document.querySelector('#${id} .js-plotly-plot').layout.annotations.every(a=>!a.text.includes(' / '))`);
+                    }
+                }
+                await evaluate(`document.querySelector('#rework-ratio-chart').scrollIntoView({block:'center',behavior:'instant'})`);
+                const screenshot = await call('Page.captureScreenshot', {format:'png'});
+                await writeFile(`${root}/intensity-${width}-${light ? 'light' : 'dark'}.png`, Buffer.from(screenshot.data,'base64'));
+                const layout = await evaluate(`({document:document.documentElement.scrollWidth,viewport:innerWidth,
+                    charts:Array.from(document.querySelectorAll('#rework-ratio-chart, #pending-chart, #individual-chart')).map(el=>{
+                        const p=el.querySelector('.js-plotly-plot'),r=el.getBoundingClientRect();
+                        return {id:el.id,left:r.left,right:r.right,top:r.top,height:r.height,plot:p._fullLayout._size,
+                            annotations:p.layout.annotations?.length,types:p.data.map(t=>t.type)};
+                    })})`);
+                if (layout.document > layout.viewport + 1 || layout.charts.some(c=>c.left<0 || c.right>layout.viewport+1 || c.plot.h < 50)) throw new Error('Chart overflow: '+JSON.stringify(layout));
+                const matrices=layout.charts.filter(c=>c.id !== 'individual-chart');
+                if (width >= 992 && (Math.abs(matrices[0].top-matrices[1].top)>2 || Math.abs(matrices[0].height-matrices[1].height)>2)) throw new Error('Heatmap sizes/positions do not align: '+JSON.stringify(matrices));
+                results.push({width,light,checks,layout});
+                console.log(JSON.stringify({width,light,checks,layout}));
             }
-            const screenshot = await call('Page.captureScreenshot', {format: 'png'});
-            await writeFile(`${root}/rework-hover-${width}.png`, Buffer.from(screenshot.data, 'base64'));
-            results.push({width, hovers});
-            console.log(JSON.stringify({width, hovers}));
+        }
+        // Endpoints keep the existing user selection action.
+        await evaluate(`document.querySelector('#individual-chart').scrollIntoView({block:'center',behavior:'instant'})`);
+        const dot = await evaluate(`(() => {const r=document.querySelector('#individual-chart .point').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()`);
+        await call('Input.dispatchMouseEvent', {type:'mousePressed',button:'left',clickCount:1,...dot});
+        await call('Input.dispatchMouseEvent', {type:'mouseReleased',button:'left',clickCount:1,...dot});
+        await until(`document.querySelector('#pending-chart .js-plotly-plot').data[0].y.length === 1`);
+        results.push({selectionWorks:true});
+        await qaFetch(qaOrigin + '/qa/scenario', {method:'POST', headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({mode:'tiers',team_size:12,pending_limit:8,seed_panels:true})});
+        for (const width of [390,1366]) {
+            await call('Emulation.setDeviceMetricsOverride',{width,height:950,deviceScaleFactor:1,mobile:false});
+            await call('Page.navigate',{url:qaOrigin+'/'});
+            await until(`document.querySelector('#rework-ratio-chart .js-plotly-plot')?.data[0]?.y?.length === 12 && document.querySelector('#pending-chart .js-plotly-plot')?.data[0]?.y?.length === 8`);
+            await until(`!Array.from(document.querySelectorAll('[data-dash-is-loading="true"]')).some(${visible})`);
+            await evaluate(`document.querySelector('#rework-ratio-chart').scrollIntoView({block:'start',behavior:'instant'})`);
+            const sizes = await until(`(() => {
+                const charts=['rework-ratio-chart','pending-chart'].map(id=>{
+                    const el=document.querySelector('#'+id),p=el.querySelector('.js-plotly-plot'),r=el.getBoundingClientRect();
+                    return {id,top:r.top,height:r.height,rows:p.data[0].y.length,left:r.left,right:r.right};
+                });
+                if (innerWidth >= 992 && (Math.abs(charts[0].top-charts[1].top)>2 || Math.abs(charts[0].height-charts[1].height)>2)) return false;
+                return {width:innerWidth,documentWidth:document.documentElement.scrollWidth,charts};
+            })()`);
+            if (sizes.documentWidth > width+1 || sizes.charts.some(c=>c.left<0 || c.right>width+1)) throw new Error('Unequal team layout overflow');
+            const screenshot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
+            await writeFile(`${root}/checkbox-team-${width}.png`,Buffer.from(screenshot.data,'base64'));
+            results.push({unequalRosters:sizes});
         }
     }
     if (['reference', 'reference-light'].includes(process.argv[2])) {
@@ -276,7 +362,7 @@ try {
             results.push({width, ...values, themeToggle: true});
         }
     }
-    for (const mode of (['local', 'modernization', 'controls', 'rework', 'reference', 'reference-light', 'responsive', 'lifecycle', 'labels', 'latency', 'user-latency', 'daily-latency', 'panel-latency', 'range-filters', 'trend-refresh', 'funnel'].includes(process.argv[2]) ? [] : (process.argv[2] || 'normal,many,empty,one,zero,large,failure').split(','))) {
+    for (const mode of (['intensity', 'local', 'modernization', 'controls', 'rework', 'reference', 'reference-light', 'responsive', 'lifecycle', 'labels', 'latency', 'user-latency', 'daily-latency', 'panel-latency', 'range-filters', 'trend-refresh', 'funnel'].includes(process.argv[2]) ? [] : (process.argv[2] || 'normal,many,empty,one,zero,large,failure').split(','))) {
         await qaFetch('http://127.0.0.1:8059/qa/scenario', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode, seconds: 3600, auditor_seconds: 0, admin_seconds: 0, delay: 0})});
         for (const width of (mode === 'normal' || mode === 'many' ? [390, 768, 1366, 1920] : [390])) {
             await call('Emulation.setDeviceMetricsOverride', {width, height: 950, deviceScaleFactor: 1, mobile: false});

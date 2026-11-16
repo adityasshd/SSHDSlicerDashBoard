@@ -30,7 +30,8 @@
     function refreshHourLabels(plot) {
         const orientation = plot.layout.meta?.hour_axis_orientation;
         if (!orientation || !window.Plotly) return;
-        const horizontal = orientation === 'h', totals = new Map();
+        const horizontal = orientation === 'h', totals = new Map(), counts = new Map();
+        const countIndex = plot.layout.meta.bar_count_index;
         let maximum = 0;
         const stacked = ['stack', 'relative'].includes(plot.layout.barmode);
         for (const trace of plot._fullData || []) {
@@ -43,6 +44,11 @@
                 if (trace.type !== 'bar' || !labels) return;
                 const key = labels[index], previous = totals.has(key) ? totals.get(key) : 0;
                 totals.set(key, valid && previous !== null ? previous + value : null);
+                if (countIndex !== undefined) {
+                    const count = trace.customdata?.[index]?.[countIndex];
+                    const previousCount = counts.has(key) ? counts.get(key) : 0;
+                    counts.set(key, typeof count === 'number' && Number.isFinite(count) && count >= 0 && previousCount !== null ? previousCount + count : null);
+                }
             });
         }
         if (stacked) for (const value of totals.values()) if (value !== null) maximum = Math.max(maximum, value);
@@ -55,7 +61,8 @@
             const annotations = (plot.layout.annotations || []).filter(item => item.name !== 'bar-hour-total');
             for (const [category, total] of totals) {
                 if (total === null) continue;
-                const label = clock(total, total === 0 || total >= 1 / 60);
+                let label = clock(total, total === 0 || total >= 1 / 60);
+                if (countIndex !== undefined) label += ' / ' + (counts.get(category) ?? '—');
                 annotations.push({name: 'bar-hour-total', text: label,
                     x: horizontal ? total : category, y: horizontal ? category : total,
                     xref: 'x', yref: 'y', showarrow: false,
@@ -136,6 +143,10 @@
         const traces = plot._fullData || plot.data;
         const horizontal = new Set();
         traces.forEach(trace => {
+            if (trace.type === 'heatmap' && plot.layout.meta?.intensity_matrix) {
+                Array.from(trace.y || []).forEach(value => horizontal.add(value));
+                return;
+            }
             if (trace.type !== 'bar') return;
             if (trace.orientation !== 'h' && plot._fullLayout?.xaxis?.type === 'date') return;
             if (trace.orientation !== 'h') return;
@@ -152,9 +163,22 @@
         const columns = Math.max(1, Math.floor((plot._fullLayout?._size?.w || frame.clientWidth - 80) / 150));
         const bottom = horizontalLegend ? Math.max(100, Math.min(390, Math.ceil(items / columns) * 32 + 50)) : 0;
         const extra = horizontalLegend ? bottom - 100 : 0;
-        const height = Math.max(Number(graph.dataset.baseHeight) + extra, horizontal.size * 34 + 160 + extra);
+        let rowCount = horizontal.size;
+        if (plot.layout.meta?.intensity_matrix && window.matchMedia('(min-width: 992px)').matches) {
+            const row = graph.closest('.dashboard-matrix-row');
+            row?.querySelectorAll('.js-plotly-plot').forEach(mate => {
+                if (mate.layout?.meta?.intensity_matrix) rowCount = Math.max(rowCount, mate.data?.[0]?.y?.length || 0);
+            });
+        }
+        const height = plot.layout.meta?.intensity_matrix ? Math.max(340, rowCount * 30 + 150) :
+            Math.max(Number(graph.dataset.baseHeight) + extra, horizontal.size * 34 + 160 + extra);
         // The shared ResizeObserver handles changed dimensions once.
         if (graph.style.height !== height + 'px') graph.style.height = height + 'px';
+        if (plot.layout.meta?.intensity_matrix && window.matchMedia('(min-width: 992px)').matches) {
+            graph.closest('.dashboard-matrix-row')?.querySelectorAll('.chart-surface').forEach(mate => {
+                if (mate.style.height !== height + 'px') mate.style.height = height + 'px';
+            });
+        }
         if (graph.style.width !== '100%') graph.style.width = '100%';
         if (horizontalLegend && window.Plotly &&
             (plot.layout.margin?.b !== bottom || plot.layout.legend?.maxheight !== bottom - 24)) {
@@ -197,6 +221,27 @@
                         tooltip.setAttribute('role', 'tooltip'); document.body.appendChild(tooltip);
                     }
                     tooltip.textContent = lines.join('\n');
+                    // The overlay replaces Plotly's SVG hover. Preserve the hovered
+                    // segment/cell color rather than falling back to the page theme.
+                    const label = hover?.querySelector('.hovertext path');
+                    const background = label ? getComputedStyle(label).fill : '';
+                    if (background && background !== 'none') {
+                        tooltip.style.backgroundColor = background;
+                        tooltip.style.borderColor = background;
+                        const channels = background.match(/[\d.]+/g)?.slice(0, 3).map(Number);
+                        if (channels?.length === 3) {
+                            const linear = channels.map(value => {
+                                value /= 255;
+                                return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
+                            });
+                            const luminance = .2126 * linear[0] + .7152 * linear[1] + .0722 * linear[2];
+                            tooltip.style.color = luminance > .179 ? '#10261e' : '#ffffff';
+                        }
+                    } else {
+                        tooltip.style.removeProperty('background-color');
+                        tooltip.style.removeProperty('border-color');
+                        tooltip.style.removeProperty('color');
+                    }
                     tooltip.hidden = false;
                     const rect = tooltip.getBoundingClientRect();
                     const pointer = event.event || {};

@@ -44,7 +44,7 @@ def choose_packet(request, saved, live):
     return None, 'Latest data unavailable. Refresh to retry.' if live else 'Loading latest data…'
 
 
-def render_panel(kind, request, saved, live, selected, theme, roster):
+def render_panel(kind, request, saved, live, selected, theme, roster, show_counts=False):
     dark = (theme or 0) % 2 == 0
     packet, status = choose_packet(request, saved, live)
     if not packet:
@@ -61,12 +61,36 @@ def render_panel(kind, request, saved, live, selected, theme, roster):
     if kind == 'completion':
         figure = build_individual_chart(frame, request['start'], request['end'], dark)
     elif kind == 'rework':
-        figure = build_rework_ratio_chart(frame, request['start'], dark, None, False)
+        figure = build_rework_ratio_chart(frame, request['start'], dark, None, False, show_counts=show_counts)
     elif kind == 'assigned':
-        figure = build_assigned_chart(frame, dark)
+        figure = build_assigned_chart(frame, dark, show_counts=show_counts)
     else:
-        figure = build_pending_chart(frame, dark)
+        figure = build_pending_chart(frame, dark, show_counts=show_counts)
     return figure, status
+
+
+def render_rework_hours(request, saved, live, selected, theme):
+    """Reuse rework packets so the new KPI never starts another source read."""
+    from slicing_dashboard.plots.kpi_overview import build_rework_hours_metric
+    from slicing_dashboard.reporting.rework_tiers import rework_hours
+
+    dark = (theme or 0) % 2 == 0
+    packet, status = choose_packet(request, saved, live)
+    if not packet:
+        return build_rework_hours_metric(status=status, is_dark=dark)
+    try:
+        frame = panel_frame(packet)
+        if selected is not None and 'User' in frame:
+            frame = frame[frame['User'].isin(selected)]
+        hours = rework_hours(frame)
+    except (KeyError, TypeError, ValueError):
+        return build_rework_hours_metric(status='Rework hours unavailable. Refresh to retry.', is_dark=dark)
+    note = ('Some tier hours are unavailable in this capture.' if any(value is None for value in hours.values())
+            else '')
+    current_live = matching_packet(request, live)
+    if not current_live or not current_live.get('available'):
+        note += f' {status}'
+    return build_rework_hours_metric(hours, status=note, is_dark=dark)
 
 
 def register_dashboard_panels(app, manager, roster):
@@ -101,6 +125,22 @@ def register_dashboard_panels(app, manager, roster):
 
     for kind in KINDS:
         _register_panel(app, manager, roster, kind)
+
+    @app.callback(Output('kpi-rework-breakdown', 'children'),
+                  Input('kpi-cards', 'children'), Input('dashboard-panel-request', 'data'),
+                  Input('dashboard-saved-rework', 'data'), Input('dashboard-live-rework', 'data'),
+                  Input('selected-users-store', 'data'), Input('theme-toggle', 'n_clicks'),
+                  State('report-location', 'pathname'))
+    def paint_rework_hours(layout, request, saved, live, selected, theme, pathname):
+        if not request or pathname not in (None, '/', '/dashboard'):
+            raise dash.exceptions.PreventUpdate
+        # The summary replaces its children when its data or theme changes.
+        # Repaint from the same packet after that replacement, without refetching.
+        panels = layout if isinstance(layout, list) else [layout]
+        if not any(isinstance(panel, dict) and 'kpiu-overview' in panel.get('props', {}).get('className', '')
+                   for panel in panels):
+            raise dash.exceptions.PreventUpdate
+        return render_rework_hours(request, saved, live, selected, theme)
 
     def review_mix(request, saved, live, selected, theme, pathname):
         if not request or pathname not in (None, '/', '/dashboard'):
@@ -137,6 +177,9 @@ def _register_panel(app, manager, roster, kind):
     outputs = ([Output('kpi-cards', 'children'), Output('refresh-status', 'children')]
                if kind == 'summary' else
                [Output(GRAPH_IDS[kind], 'figure'), Output(GRAPH_IDS[kind] + '-status', 'children')])
+    has_counts = kind in ('rework', 'pending', 'assigned')
+    counts_input = [Input(GRAPH_IDS[kind] + '-counts', 'value')] if has_counts else []
+    counts_state = [State(GRAPH_IDS[kind] + '-counts', 'value')] if has_counts else []
 
     @app.callback(Output(f'dashboard-live-{kind}', 'data'),
                   Input(f'dashboard-ready-{kind}', 'data'), State(request_store, 'data'))
@@ -155,9 +198,12 @@ def _register_panel(app, manager, roster, kind):
                   Output(f'dashboard-painted-{kind}', 'data'),
                   Input(request_store, 'data'), Input(f'dashboard-saved-{kind}', 'data'),
                   Input('selected-users-store', 'data'), Input('theme-toggle', 'n_clicks'),
+                  *counts_input,
                   State(f'dashboard-live-{kind}', 'data'), State('report-location', 'pathname'),
                   State(f'dashboard-ready-{kind}', 'data'))
-    def paint_saved(request, saved, selected, theme, live, pathname, ready):
+    def paint_saved(request, saved, selected, theme, *arguments):
+        counts, arguments = (arguments[0], arguments[1:]) if has_counts else ([], arguments)
+        live, pathname, ready = arguments
         if not request or pathname not in (None, '/', '/dashboard'):
             raise dash.exceptions.PreventUpdate
         # Start this panel's live read only after its saved/loading response.
@@ -166,7 +212,7 @@ def _register_panel(app, manager, roster, kind):
         start_capture = (dash.no_update if viewer_mode() or matching_packet(request, ready)
                          else {'request_id': request['id']})
         painted = {'request_id': request['id'], 'id': uuid4().hex}
-        return *render_panel(kind, request, saved, live, selected, theme, roster), start_capture, painted
+        return *render_panel(kind, request, saved, live, selected, theme, roster, 'counts' in (counts or [])), start_capture, painted
 
     @app.callback(*[Output(output.component_id, output.component_property, allow_duplicate=True)
                     for output in outputs],
@@ -174,8 +220,8 @@ def _register_panel(app, manager, roster, kind):
                   Input(f'dashboard-painted-{kind}', 'data'),
                   State(request_store, 'data'), State(f'dashboard-saved-{kind}', 'data'),
                   State('selected-users-store', 'data'), State('theme-toggle', 'n_clicks'),
-                  State('report-location', 'pathname'), prevent_initial_call=True)
-    def paint_live(live, painted, request, saved, selected, theme, pathname):
+                  State('report-location', 'pathname'), *counts_state, prevent_initial_call=True)
+    def paint_live(live, painted, request, saved, selected, theme, pathname, counts=None):
         if not request or not matching_packet(request, live) or pathname not in (None, '/', '/dashboard'):
             raise dash.exceptions.PreventUpdate
-        return render_panel(kind, request, saved, live, selected, theme, roster)
+        return render_panel(kind, request, saved, live, selected, theme, roster, 'counts' in (counts or []))

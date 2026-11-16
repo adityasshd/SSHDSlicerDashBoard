@@ -176,6 +176,19 @@ class TestRefreshPerformance(unittest.TestCase):
         self.assertEqual(dm._batch_canonical_name(ledger), 'New name')
         dm.scraper._client.get.assert_not_called()
 
+    def test_batch_refresh_keeps_coverage_and_persists_when_pool_rejects_shutdown_reads(self):
+        dm = self.dm
+        dm._last_batch_returns_sync = datetime.now()
+        dm.scraper._client.get.return_value = response({'breakdowns': {'batches': []}})
+        with patch('slicing_dashboard.runtime.ThreadPoolExecutor.submit',
+                   side_effect=RuntimeError('cannot schedule new futures after interpreter shutdown')):
+            with dm.refresh_scope():
+                dm.sync_batches_master('2026-09-01', '2026-09-02')
+        self.assertEqual(dm._batches_master_synced_dates, {'2026-09-01', '2026-09-02'})
+        self.assertEqual(dm.scraper._client.get.call_count, 2)
+        self.assertIsNone(dm._batch_source_error)
+        dm.db.save_dashboard_snapshot.assert_called_once()
+
     def test_pending_view_uses_pool_inventory_instead_of_overview(self):
         dm = self.dm
         dm.fetch_annotator_efficiency = MagicMock(return_value=({}, []))
