@@ -14,6 +14,7 @@ from slicing_dashboard.plots import (
 )
 from slicing_dashboard.plots.guardrails import state_figure
 from slicing_dashboard.runtime import viewer_mode
+from slicing_dashboard.reporting.settlement_snapshots import manager_snapshot, period_for_range
 
 GRAPH_IDS = {'completion': 'individual-chart', 'rework': 'rework-ratio-chart',
              'assigned': 'assigned-chart', 'pending': 'pending-chart'}
@@ -32,6 +33,10 @@ def matching_packet(request, packet):
 
 def choose_packet(request, saved, live):
     saved, live = matching_packet(request, saved), matching_packet(request, live)
+    if request.get('frozen'):
+        if saved and saved.get('available'):
+            return saved, 'Final settled-period snapshot · read only'
+        return None, 'No verified snapshot exists for this settled period. Raw history has not been archived.'
     if live and live.get('available'):
         return live, f"Captured {live['captured_at']}"
     if saved and saved.get('available'):
@@ -110,6 +115,20 @@ def register_dashboard_panels(app, manager, roster):
         request = {'id': uuid4().hex, 'start': start, 'end': end,
                    'force': trigger in ('refresh-btn', 'auto-refresh-interval'),
                    'pending_force': trigger in ('workflow-notification-interval', 'workflow-bell')}
+        closed = period_for_range(manager.get_available_periods(), start, end)
+        if closed is not None:
+            # Never read live queues or rolling panel keys for a settled period.
+            request['frozen'] = True
+            try:
+                snapshot = manager_snapshot(manager, start, end)
+            except (ValueError, KeyError, TypeError):
+                snapshot = None
+            packets = (snapshot or {}).get('panels', {})
+            frozen_saved = [
+                {**packets.get(kind, {'available': False}), 'request_id': request['id']}
+                for kind in KINDS
+            ]
+            return request, request, *frozen_saved
         # Notification checks affect the current review queue only. A new shared
         # request ID would otherwise restart all five panel capture pipelines.
         if request['pending_force']:
@@ -184,7 +203,7 @@ def _register_panel(app, manager, roster, kind):
     @app.callback(Output(f'dashboard-live-{kind}', 'data'),
                   Input(f'dashboard-ready-{kind}', 'data'), State(request_store, 'data'))
     def capture(ready, request):
-        if viewer_mode():
+        if viewer_mode() or (request or {}).get('frozen'):
             raise dash.exceptions.PreventUpdate
         if not request or not matching_packet(request, ready):
             raise dash.exceptions.PreventUpdate
@@ -209,7 +228,7 @@ def _register_panel(app, manager, roster, kind):
         # Start this panel's live read only after its saved/loading response.
         # Otherwise a fast live response can be overwritten by a slower first
         # paint from a different callback, leaving the selected range stale.
-        start_capture = (dash.no_update if viewer_mode() or matching_packet(request, ready)
+        start_capture = (dash.no_update if viewer_mode() or request.get('frozen') or matching_packet(request, ready)
                          else {'request_id': request['id']})
         painted = {'request_id': request['id'], 'id': uuid4().hex}
         return *render_panel(kind, request, saved, live, selected, theme, roster, 'counts' in (counts or [])), start_capture, painted
@@ -222,6 +241,6 @@ def _register_panel(app, manager, roster, kind):
                   State('selected-users-store', 'data'), State('theme-toggle', 'n_clicks'),
                   State('report-location', 'pathname'), *counts_state, prevent_initial_call=True)
     def paint_live(live, painted, request, saved, selected, theme, pathname, counts=None):
-        if not request or not matching_packet(request, live) or pathname not in (None, '/', '/dashboard'):
+        if not request or request.get('frozen') or not matching_packet(request, live) or pathname not in (None, '/', '/dashboard'):
             raise dash.exceptions.PreventUpdate
         return render_panel(kind, request, saved, live, selected, theme, roster, 'counts' in (counts or []))
