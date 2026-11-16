@@ -55,7 +55,7 @@ def choose_packet(request, saved, live):
     return None, 'Latest data unavailable. Refresh to retry.' if live else 'Loading latest data…'
 
 
-def render_panel(kind, request, saved, live, selected, theme, roster, show_counts=False):
+def render_panel(kind, request, saved, live, selected, theme, roster, show_counts=False, completion_state='All'):
     dark = (theme or 0) % 2 == 0
     packet, status = choose_packet(request, saved, live)
     if not packet:
@@ -75,7 +75,7 @@ def render_panel(kind, request, saved, live, selected, theme, roster, show_count
     if kind == 'completion':
         figure = build_individual_chart(frame, request['start'], request['end'], dark)
     elif kind == 'rework':
-        figure = build_rework_ratio_chart(frame, request['start'], dark, None, False, show_counts=show_counts)
+        figure = build_rework_ratio_chart(frame, request['start'], dark, None, False, show_counts=show_counts, completion_state=completion_state)
     elif kind == 'assigned':
         figure = build_assigned_chart(frame, dark, show_counts=show_counts)
     else:
@@ -218,6 +218,8 @@ def _register_panel(app, manager, roster, kind):
     has_counts = kind in ('rework', 'pending', 'assigned')
     counts_input = [Input(GRAPH_IDS[kind] + '-counts', 'value')] if has_counts else []
     counts_state = [State(GRAPH_IDS[kind] + '-counts', 'value')] if has_counts else []
+    rework_input = [Input('rework-completion-state', 'value')] if kind == 'rework' else []
+    rework_state = [State('rework-completion-state', 'value')] if kind == 'rework' else []
 
     @app.callback(Output(f'dashboard-live-{kind}', 'data'),
                   Input(f'dashboard-ready-{kind}', 'data'), State(request_store, 'data'))
@@ -236,11 +238,12 @@ def _register_panel(app, manager, roster, kind):
                   Output(f'dashboard-painted-{kind}', 'data'),
                   Input(request_store, 'data'), Input(f'dashboard-saved-{kind}', 'data'),
                   Input('selected-users-store', 'data'), Input('theme-toggle', 'n_clicks'),
-                  *counts_input,
+                  *counts_input, *rework_input,
                   State(f'dashboard-live-{kind}', 'data'), State('report-location', 'pathname'),
                   State(f'dashboard-ready-{kind}', 'data'))
     def paint_saved(request, saved, selected, theme, *arguments):
         counts, arguments = (arguments[0], arguments[1:]) if has_counts else ([], arguments)
+        completion_state, arguments = ((arguments[0] or 'All'), arguments[1:]) if kind == 'rework' else ('All', arguments)
         live, pathname, ready = arguments
         if not request or pathname not in (None, '/', '/dashboard'):
             raise dash.exceptions.PreventUpdate
@@ -250,7 +253,7 @@ def _register_panel(app, manager, roster, kind):
         start_capture = (dash.no_update if viewer_mode() or request.get('frozen') or matching_packet(request, ready)
                          else {'request_id': request['id']})
         painted = {'request_id': request['id'], 'id': uuid4().hex}
-        return *render_panel(kind, request, saved, live, selected, theme, roster, 'counts' in (counts or [])), start_capture, painted
+        return *render_panel(kind, request, saved, live, selected, theme, roster, 'counts' in (counts or []), completion_state), start_capture, painted
 
     @app.callback(*[Output(output.component_id, output.component_property, allow_duplicate=True)
                     for output in outputs],
@@ -258,8 +261,8 @@ def _register_panel(app, manager, roster, kind):
                   Input(f'dashboard-painted-{kind}', 'data'),
                   State(request_store, 'data'), State(f'dashboard-saved-{kind}', 'data'),
                   State('selected-users-store', 'data'), State('theme-toggle', 'n_clicks'),
-                  State('report-location', 'pathname'), *counts_state, prevent_initial_call=True)
-    def paint_live(live, painted, request, saved, selected, theme, pathname, counts=None):
+                  State('report-location', 'pathname'), *counts_state, *rework_state, prevent_initial_call=True)
+    def paint_live(live, painted, request, saved, selected, theme, pathname, counts=None, completion_state='All'):
         if not request or request.get('frozen') or not matching_packet(request, live) or pathname not in (None, '/', '/dashboard'):
             raise dash.exceptions.PreventUpdate
-        return render_panel(kind, request, saved, live, selected, theme, roster, 'counts' in (counts or []))
+        return render_panel(kind, request, saved, live, selected, theme, roster, 'counts' in (counts or []), completion_state or 'All')
