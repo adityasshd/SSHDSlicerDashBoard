@@ -48,6 +48,7 @@ def submitted_video_output(day, selected_users=None, expected_date=None):
     selected = set(selected_users) if selected_users is not None else None
     sums = {key: 0.0 for key, _, _, _ in BUCKETS}
     counts = {key: 0 for key, _, _, _ in BUCKETS}
+    count_known = {key: True for key, _, _, _ in BUCKETS}
     seen = set()
     for row in rows:
         if not isinstance(row, dict):
@@ -82,8 +83,9 @@ def submitted_video_output(day, selected_users=None, expected_date=None):
             if count is not None:
                 counts[key] += int(count)
             else:
-                counts[key] = None
+                count_known[key] = False
     total = sum(sums.values())
+    counts = {key: value if count_known[key] else None for key, value in counts.items()}
     total_tasks = (sum(counts.values()) if all(value is not None for value in counts.values())
                    else None)
     return {
