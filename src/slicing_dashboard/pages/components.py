@@ -34,13 +34,6 @@ def chart_graph(**kwargs):
     
     graph_id = kwargs.get("id")
 
-    count_label = {
-        "rework-ratio-chart": "Show batch counts",
-        "approval-progression-chart": "Show counts",
-        "pending-chart": "Show task counts",
-        "assigned-chart": "Show task counts",
-    }.get(graph_id)
-
     controls = []
 
     # Rework completion-state selector
@@ -55,39 +48,21 @@ def chart_graph(**kwargs):
                     dcc.RadioItems(
                         id="rework-completion-state",
                         options=[
-                            {"label": "All", "value": "All"},
-                            {"label": "Completed", "value": "Completed"},
+                            {"label": "All views", "value": "All"},
+                            {"label": "Completed in period", "value": "Completed"},
                             {
                                 "label": "Pending approvals",
                                 "value": "Pending approvals",
                             },
                         ],
-                        value="All",
+                        value="Completed",
                         inline=True,
-                        persistence=True,
+                        persistence='period-completion-v1',
                         persistence_type="session",
                         className="rework-state-toggle",
                     ),
                 ],
                 className="rework-state-control",
-            )
-        )
-
-    # Preserve the existing counts checkbox
-    if count_label:
-        controls.append(
-            dcc.Checklist(
-                id=graph_id + "-counts",
-                options=[
-                    {
-                        "label": count_label,
-                        "value": "counts",
-                    }
-                ],
-                value=[],
-                persistence=True,
-                persistence_type="session",
-                className="chart-count-checkbox",
             )
         )
 
@@ -109,16 +84,7 @@ def chart_graph(**kwargs):
         "pending-chart",
     ):
         children.append(
-            html.Details(
-                [
-                    html.Summary("Capture details"),
-                    html.Div(
-                        id=graph_id + "-status",
-                        **{"aria-live": "polite"},
-                    ),
-                ],
-                className="chart-details",
-            )
+            html.Div(id=graph_id + "-status", className="chart-status", **{"aria-live": "polite"})
         )
 
     # Return the completed chart wrapper.

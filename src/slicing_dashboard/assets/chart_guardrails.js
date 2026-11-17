@@ -167,7 +167,8 @@
         if (plot.layout.meta?.intensity_matrix && window.matchMedia('(min-width: 992px)').matches) {
             const row = graph.closest('.dashboard-matrix-row');
             row?.querySelectorAll('.js-plotly-plot').forEach(mate => {
-                if (mate.layout?.meta?.intensity_matrix) rowCount = Math.max(rowCount, mate.data?.[0]?.y?.length || 0);
+                if (mate.layout?.meta?.intensity_matrix) rowCount = Math.max(rowCount,
+                    new Set((mate.data || []).filter(trace => trace.type === 'heatmap').flatMap(trace => Array.from(trace.y || []))).size);
             });
         }
         const height = plot.layout.meta?.intensity_matrix ? Math.max(340, rowCount * 30 + 150) :

@@ -42,15 +42,15 @@ def _comparison(value, favorable_when_positive=True):
     return 'positive' if ((n > 0) == favorable_when_positive) else 'negative'
 
 
-def _metric(label, value, secondary=None, trend=None, sentiment='neutral', extra_class=''):
+def _metric(label, value, secondary=None, trend=None, sentiment='neutral', extra_class='', value_id=None, trend_id=None):
     children = [
         html.Div(label, className='kpiu-label'),
-        html.Div('—' if value is None else str(value), className='kpiu-number'),
+        html.Div('—' if value is None else str(value), className='kpiu-number', **({'id': value_id} if value_id else {})),
     ]
     if secondary is not None:
         children.append(html.Div(secondary, className='kpiu-meta'))
-    if trend is not None:
-        children.append(html.Div(trend, className=f'kpiu-trend kpiu-{sentiment}'))
+    if trend is not None or trend_id:
+        children.append(html.Div(trend, className=f'kpiu-trend kpiu-{sentiment}', **({'id': trend_id} if trend_id else {})))
     return html.Div(children, className=f'kpiu-metric {extra_class}'.strip())
 
 
@@ -110,19 +110,44 @@ def build_rework_hours_metric(hours=None, status=None, is_dark=True):
     ]
 
 
+def build_secondary_metrics(kpis):
+    count = kpis.get('assignable_count')
+    unavailable = bool(kpis.get('assignable_error')) or kpis.get('assignable_duration') is None
+    return [
+        _metric('Unassigned videos · current pool', 'Unavailable' if unavailable else _duration(kpis.get('assignable_duration')),
+                secondary='Pool unavailable' if unavailable else f'Currently assignable · {count if count is not None else "—"} tasks'),
+        _metric('Rework submitted · period', _duration(kpis.get('rework_duration')),
+                trend=_percent(kpis.get('rework_pct')),
+                sentiment=_comparison(kpis.get('rework_pct'), favorable_when_positive=False)),
+        _metric('Error duration · period', _duration(kpis.get('total_error_duration')),
+                trend=_percent(kpis.get('error_pct')),
+                sentiment=_comparison(kpis.get('error_pct'), favorable_when_positive=False)),
+    ]
+
+
+def build_workload_metric(kpis, kind, note=None):
+    if kind == 'assigned':
+        label, total = 'Assigned Now · current queue', kpis.get('assigned_now_duration')
+        parts = [('Assigned', kpis.get('assigned_duration'), 'var(--kpiu-series-1)'),
+                 ('Rework in active load', kpis.get('rework_assigned_duration'), 'var(--kpiu-series-2)')]
+    else:
+        label, total = 'Review Total · current queue', kpis.get('total_pending_duration')
+        parts = [(stage, kpis.get(stage.lower() + '_review_duration'), f'var(--kpiu-series-{index})')
+                 for index, stage in enumerate(('Leader', 'Auditor', 'Admin'), 1)]
+    return [html.Div([html.Span(label, className='kpiu-label'), html.Strong(_duration(total), className='kpiu-row-value')],
+                     className='kpiu-row-heading'),
+            _parts(parts, label + ' duration breakdown'),
+            html.Div(note, className='kpiu-warning') if note else None]
+
+
 def build_kpi_layout(kpis: dict, funnel_map: dict, is_dark: bool) -> list:
     """Render the full-width dashboard overview using the shared KPI contract."""
     kpis = ordered_kpis(kpis or {}, funnel_map or {})
     approved = _number(kpis.get('total_approved_duration'), None)
-    assigned_total = _number(kpis.get('assigned_now_duration'), None)
-    assigned = _number(kpis.get('assigned_duration'), None)
-    rework_now = _number(kpis.get('rework_assigned_duration'), None)
     pending = _number(kpis.get('total_pending_duration'), None)
     leader = _number(kpis.get('leader_review_duration'), None)
     auditor = _number(kpis.get('auditor_review_duration'), None)
     admin = _number(kpis.get('admin_review_duration'), None)
-    count = kpis.get('assignable_count')
-    unavailable = bool(kpis.get('assignable_error')) or kpis.get('assignable_duration') is None
 
     # The pending total is authoritative. Its breakdown may be incomplete or
     # have distinct counting semantics; never invent a balancing stage.
@@ -141,40 +166,18 @@ def build_kpi_layout(kpis: dict, funnel_map: dict, is_dark: bool) -> list:
         ], className='kpiu-header'),
         html.Div([
             html.Div([
-                _metric('Total Approved', _duration(approved),
+                _metric('Total Approved · period task completion', _duration(approved),
+                        secondary='Completed task video, including confirmed errors',
                         trend=_percent(kpis.get('approved_pct')),
-                        sentiment=_comparison(kpis.get('approved_pct')), extra_class='kpiu-primary'),
+                        sentiment=_comparison(kpis.get('approved_pct')), extra_class='kpiu-primary',
+                        value_id='kpi-approved-value', trend_id='kpi-approved-comparison'),
             ], className='kpiu-hero'),
-            html.Div([
-                html.Div([html.Span('Assigned Now', className='kpiu-label'),
-                          html.Strong(_duration(assigned_total), className='kpiu-row-value')],
-                         className='kpiu-row-heading'),
-                _parts([('Assigned', assigned, 'var(--kpiu-series-1)'),
-                        ('Rework in active load', rework_now, 'var(--kpiu-series-2)')], 'Assigned Now duration breakdown'),
-            ], className='kpiu-workload-row kpiu-assigned'),
-            html.Div([
-                html.Div([html.Span('Review Total', className='kpiu-label'),
-                          html.Strong(_duration(pending), className='kpiu-row-value')],
-                         className='kpiu-row-heading'),
-                _parts([('Leader', leader, 'var(--kpiu-series-1)'),
-                        ('Auditor', auditor, 'var(--kpiu-series-2)'),
-                        ('Admin', admin, 'var(--kpiu-series-3)')], 'Review Total stage duration breakdown'),
-                html.Div(pending_note, className='kpiu-warning') if pending_note else None,
-            ], className='kpiu-workload-row kpiu-review'),
+            html.Div(build_workload_metric(kpis, 'assigned'), id='kpi-assigned', className='kpiu-workload-row kpiu-assigned'),
+            html.Div(build_workload_metric(kpis, 'pending', pending_note), id='kpi-review', className='kpiu-workload-row kpiu-review'),
         ], className='kpiu-main'),
         html.Div(build_rework_hours_metric(kpis.get('rework_tier_hours'), is_dark=is_dark),
                  id='kpi-rework-breakdown', className='kpiu-rework'),
-        html.Div([
-            _metric('Unassigned videos', 'Unavailable' if unavailable else _duration(kpis.get('assignable_duration')),
-                    secondary='Pool unavailable · Refresh to retry' if unavailable else
-                              f'Currently assignable · {count if count is not None else "—"} tasks'),
-            _metric('Rework submitted', _duration(kpis.get('rework_duration')),
-                    trend=_percent(kpis.get('rework_pct')),
-                    sentiment=_comparison(kpis.get('rework_pct'), favorable_when_positive=False)),
-            _metric('Error duration', _duration(kpis.get('total_error_duration')),
-                    trend=_percent(kpis.get('error_pct')),
-                    sentiment=_comparison(kpis.get('error_pct'), favorable_when_positive=False)),
-        ], className='kpiu-metrics'),
-    ], className=f'kpiu-overview {"kpiu-dark theme-dark" if is_dark else "kpiu-light theme-light"}')
+        html.Div(build_secondary_metrics(kpis), id='kpi-secondary', className='kpiu-metrics'),
+    ], id='kpi-overview', className=f'kpiu-overview {"kpiu-dark theme-dark" if is_dark else "kpiu-light theme-light"}')
     return [panel]
 

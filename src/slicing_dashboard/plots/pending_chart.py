@@ -26,6 +26,14 @@ def build_pending_chart(pending_df, is_dark: bool, show_counts=False):
     for (user, stage), rows in frame.groupby(['User', 'Stage']):
         ids = sorted({item.strip() for raw in rows.get('IDs', []) for item in str(raw or '').split(',') if item.strip()})
         cells[user, stage] = (rows.Duration.sum(), int(rows.Count.sum()), ', '.join(ids) or 'Unavailable')
+    total_label = '<b>Total</b>'
+    for stage in STAGES:
+        stage_cells = [cell for (user, cell_stage), cell in cells.items() if cell_stage == stage]
+        ids = sorted({account.strip() for cell in stage_cells for account in cell[2].split(',')
+                      if account.strip() and account.strip() != 'Unavailable'})
+        cells[total_label, stage] = (sum(cell[0] for cell in stage_cells),
+                                    sum(cell[1] for cell in stage_cells), ', '.join(ids) or 'None')
+    users.append(total_label)
     hours, counts, labels, custom = [], [], [], []
     for user in users:
         row_hours, row_counts, row_labels, row_custom = [], [], [], []
@@ -34,7 +42,7 @@ def build_pending_chart(pending_df, is_dark: bool, show_counts=False):
             row_hours.append(seconds / 3600)
             row_counts.append(count)
             row_labels.append(format_seconds(seconds, compact=True))
-            row_custom.append([escape(user), stage, format_seconds(seconds), count, escape(ids)])
+            row_custom.append([escape('Total' if user == total_label else user), stage, format_seconds(seconds), count, escape(ids)])
         hours.append(row_hours)
         counts.append(row_counts)
         labels.append(row_labels)

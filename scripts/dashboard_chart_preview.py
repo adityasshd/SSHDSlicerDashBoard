@@ -204,7 +204,7 @@ def trend_report(report_date=None, force_refresh=False, start_date=None):
     result['approvals'] = approvals()
     if state.get('trend_completion'):
         result['efficiency_history'] = completion_history(state.get('trend_saved_seconds', 3600))
-    if state.get('range_sensitive') and start_date and report_date:
+    if start_date and report_date:
         start, end = date.fromisoformat(start_date), date.fromisoformat(report_date)
         if start > end:
             raise ValueError('Invalid range')

@@ -131,17 +131,19 @@ def panel_frame(packet):
 
 def selected_summary(data, users, roster):
     result = dict(data['all'])
-    if users is None or set(users) == set(roster):
+    if users is None:
         return result
     for field in SUM_FIELDS:
-        result[field] = sum(data['users'].get(user, {}).get(field, 0) for user in users)
+        values = [data['users'].get(user, {}).get(field) for user in users]
+        result[field] = sum(values) if all(value is not None for value in values) else None
     for label, current, previous in (
         ('approved', 'total_approved_duration', 'prev_approved_duration'),
         ('error', 'total_error_duration', 'prev_error_duration'),
         ('rework', 'rework_duration', 'prev_rework_duration'),
     ):
-        result[label + '_pct'] = ((result[current] - result[previous]) / result[previous] * 100
-                                  if result[previous] else 0.0)
+        result[label + '_pct'] = (None if result[current] is None or result[previous] is None else
+                                 (result[current] - result[previous]) / result[previous] * 100
+                                 if result[previous] else 0.0)
     return result
 
 
@@ -152,17 +154,15 @@ def capture_panel(manager, kind, start, end, force=False):
         with manager.refresh_scope(persist_snapshot=False):
             key = panel_key(manager, kind, start, end)
             if kind == 'summary':
-                raw = manager.fetch_dashboard_data(start, end, force)
                 all_kpis = manager.get_summary_kpis(start, end, force_refresh=force)
-                if raw.get('_source_error') or all_kpis.get('_source_error'):
+                if all_kpis.get('_source_error'):
                     raise ValueError('Summary unavailable')
                 users = set(manager.user_mapping.values()) | set(manager._snapshot_payload.get('available_users', []))
                 by_user = {user: manager.get_summary_kpis(start, end, selected_users=[user])
                            for user in sorted(user for user in users if user and user not in EXCLUDED)}
                 if any(row.get('_source_error') for row in by_user.values()):
                     raise ValueError('User summary unavailable')
-                data = {'all': all_kpis, 'users': by_user,
-                        'funnel': {row['key']: row for row in raw.get('breakdowns', {}).get('slice_funnel', [])}}
+                data = {'all': all_kpis, 'users': by_user, 'funnel': {}}
             elif kind == 'completion':
                 data = frame_payload(manager.get_user_breakdown_df(start, end, force), kind)
             elif kind == 'rework':

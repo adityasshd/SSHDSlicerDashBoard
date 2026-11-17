@@ -11,7 +11,7 @@ from tests.test_daily_report_page import payload_text, components
 def pool_metric(layout):
     return next(component for component in components(layout)
                 if getattr(component, 'className', '') == 'kpiu-metric'
-                and component.children[0].children == 'Unassigned videos')
+                and component.children[0].children.startswith('Unassigned videos'))
 
 
 def inventory(normal=0, urgent=0, normal_count=0, urgent_count=0):

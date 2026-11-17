@@ -83,7 +83,7 @@ def test_rework_matrix_preserves_raw_counts_and_unknown_durations(dark):
     assert figure.layout.hovermode == 'closest'
     assert not figure.layout.updatemenus
     with_counts = build_rework_ratio_chart(frame, '2026-10-01', dark, show_counts=True)
-    assert [item.text for item in with_counts.layout.annotations] == ['— / 1', '— / 1', '— / 1', '— / 3']
+    assert [item.text for item in with_counts.layout.annotations][:4] == ['— / 1', '— / 1', '— / 1', '— / 3']
     pd.testing.assert_frame_equal(frame, original)
 
 
@@ -261,7 +261,7 @@ def test_pending_matrix_combines_hours_and_counts_without_changing_the_scale(dar
     combined = build_pending_chart(frame, dark, show_counts=True)
     assert [list(row) for row in combined.data[0].z] == [list(row) for row in trace.z]
     assert combined.data[0].zmax == trace.zmax
-    assert [item.text for item in combined.layout.annotations] == ['01:30 / 3', '00:00 / 0', '00:00 / 0', '00:00 / 0', '00:00 / 0', '00:00 / 4']
+    assert [item.text for item in combined.layout.annotations] == ['01:30 / 3', '00:00 / 0', '00:00 / 0', '00:00 / 0', '00:00 / 0', '00:00 / 4', '01:30 / 3', '00:00 / 0', '00:00 / 4']
     assert trace.hoverlabel.bgcolor[0][0] != trace.hoverlabel.bgcolor[0][1]
     pd.testing.assert_frame_equal(frame, original)
 

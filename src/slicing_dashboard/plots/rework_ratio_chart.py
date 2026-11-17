@@ -104,10 +104,12 @@ def build_rework_ratio_chart(
         .index
     )
 
+    total_label = '<b>Total</b>'
     hours_matrix, counts_matrix, hour_labels, custom_matrix = [], [], [], []
+    users.append(total_label)
     for user in users:
         user_stacks = [
-            (state, stack) for (name, state), stack in stacks.items() if name == user
+            (state, stack) for (name, state), stack in stacks.items() if name == user or user == total_label
         ]
         total = int(sum(stack["total"] for _, stack in user_stacks))
         row_hours, row_counts, row_labels, row_custom = [], [], [], []
@@ -140,9 +142,10 @@ def build_rework_ratio_chart(
                     else (completion_state,)
                 )
                 for state in detail_states:
-                    stack = stacks.get((user, state))
-                    state_hours = stack["hours"][index] if stack else 0
-                    state_count = int(stack["counts"][index]) if stack else 0
+                    state_stacks = [stack for item_state, stack in user_stacks if item_state == state]
+                    known_hours = [stack['hours'][index] for stack in state_stacks]
+                    state_hours = sum(known_hours) if all(value is not None for value in known_hours) else None
+                    state_count = int(sum(stack['counts'][index] for stack in state_stacks))
                     state_duration = (
                         format_seconds(float(state_hours) * 3600)
                         if state_hours is not None
@@ -172,7 +175,7 @@ def build_rework_ratio_chart(
                     duration / count if duration is not None and count else None,
                     formatted_duration,
                     _format_ids(ids),
-                    escape(str(user)),
+                    escape('Total' if user == total_label else str(user)),
                     escape(str(tier)),
                     "<br>".join(details),
                 ]
@@ -183,13 +186,14 @@ def build_rework_ratio_chart(
         hour_labels.append(row_labels)
         custom_matrix.append(row_custom)
 
-    note = "Each batch duration counted once · — unavailable"
+    note = "Each batch duration counted once"
     if completion_state != "All":
         note += f" · {completion_state} only"
     elif has_status:
         note += " · Completed + Pending approvals"
     else:
         note += " · completion status unavailable"
+    note += '<br>Batch / return-date cohort · whole batches, not task completion hours'
 
     return intensity_chart(
         users,

@@ -16,24 +16,32 @@ def test_review_donut_sums_disjoint_stages_and_keeps_role_colors(dark):
     ])
     figure = build_review_workload_donut(frame, dark)
     assert list(figure.data[0].values) == [5400, 900, 0]
-    assert list(figure.data[0].marker.colors) == ['#F59E0B', '#8B5CF6', '#06B6D4']
+    assert list(figure.data[0].marker.colors) == (['#c2fd75', '#165a50', '#a78bfa'] if dark else ['#165a50', '#78b844', '#8b5cf6'])
     assert '01:45' in figure.layout.annotations[0].text
     assert figure.data[0].customdata[0][1] == 3
 
 
-def test_approval_funnel_uses_one_filtered_cohort_and_nested_passes():
-    batches = [dict(batch_id=str(index), batch_date='2026-10-06', username=user,
-                    total_duration_seconds=3600, status=status, last_updated='2026-10-06T15:00:00')
-               for index, (user, status) in enumerate([
-                   ('A', 'batch_completed'), ('A', 'batch_pending_admin_review'),
-                   ('A', 'batch_pending_auditor_review'), ('B', 'batch_completed')])]
-    payload = cohort_records([], batches, lambda row: row['username'], ['2026-10-06'])
-    figure = build_approval_progression(payload, ['2026-10-06'], ['A'], False)
-    assert figure.data[0].type == 'funnel'
-    assert list(figure.data[0].x) == [3, 2, 1]
-    assert list(figure.data[0].y) == ['Leader', 'Auditor', 'Admin']
-    empty = build_approval_progression(payload, ['2026-10-07'])
-    assert not empty.data and empty.layout.annotations
+def test_progression_uses_dated_approvals_and_native_period_completion():
+    payload = {'rows': [
+        {'date': '2026-11-01', 'member': 'A', 'batch_id': 'a', 'stage': 'Leader', 'seconds': 7200, 'event_id': '1'},
+        {'date': '2026-11-02', 'member': 'A', 'batch_id': 'a', 'stage': 'Leader', 'seconds': 7200, 'event_id': '2'},
+        {'date': '2026-10-31', 'member': 'A', 'batch_id': 'old', 'stage': 'Admin', 'seconds': 999999},
+    ], 'funnel': cohort_records([], [dict(batch_id='lifetime', batch_date='2026-11-01',
+         username='A', total_duration_seconds=546163, status='batch_completed')], lambda row: row['username'])}
+    completion = {'available': True, 'rows': [{'User': 'A', 'seconds': 227009.866, 'tasks': 1710}]}
+    figure = build_approval_progression(payload, ['2026-11-01', '2026-11-02'], ['A'], True, completion)
+    assert list(figure.data[0].x) == [2, None, 227009.866 / 3600]
+    assert figure.data[0].customdata[0][1] == '1 batch'
+    assert figure.data[0].customdata[2][0] == '63:03:30'
+    assert figure.data[0].customdata[2][1] == 'Batch count unavailable'
+    assert any(item.text == 'Unavailable' for item in figure.layout.annotations)
+    assert not build_approval_progression(payload, ['2026-11-01'], [], completion=completion).data
+
+
+def test_lifetime_status_without_dates_cannot_invent_period_approval_hours():
+    payload = cohort_records([], [dict(batch_id='old', batch_date='2026-11-01', username='A',
+        total_duration_seconds=546163, status='batch_completed')], lambda row: row['username'])
+    assert not build_approval_progression(payload, ['2026-11-01']).data
 
 
 def test_unknown_and_zero_sources_do_not_draw_invented_funnel_or_donut():

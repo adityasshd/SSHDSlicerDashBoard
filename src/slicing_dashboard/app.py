@@ -236,7 +236,7 @@ app.layout = html.Div(
                               html.H1('Slicing performance')]),
                     html.Span('Team activity', className='dashboard-period-badge'),
                 ], className='dashboard-heading'),
-                html.Div(id="kpi-cards", className="kpi-overview-container mb-2"),
+                html.Div(build_kpi_layout({}, {}, True), id="kpi-cards", className="kpi-overview-container mb-2"),
 
                 dcc.Store(id="dashboard-trend-store"),
                 html.Section([

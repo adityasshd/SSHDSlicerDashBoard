@@ -68,6 +68,9 @@ def test_summary_api_keeps_values_and_call_counts_without_completed_task_fields(
         'breakdowns': {'slice_funnel': [{'key': stage, **row} for stage, row in FUNNEL.items()]},
     }
     kpis = dm.get_summary_kpis('2026-11-01', '2026-11-10', selected_users=selected)
+    if fallback:
+        assert kpis.get('_source_error') == 'RuntimeError'
+        return
     assert kpis['total_approved_duration'] == 36000
     assert kpis['assigned_now_duration'] == 7200
     assert kpis['total_pending_duration'] == 7200
@@ -89,3 +92,19 @@ def test_user_filter_updates_period_totals_and_keeps_current_assignment_scope():
     assert filtered['assignable_duration'] == 900
     # Already mapped summaries and older captures both remain renderable.
     assert ordered_kpis(filtered, {}) == filtered
+
+
+@pytest.mark.parametrize('previous', [({'_source_error': 'MissingPeriod'}, []), ConnectionError('Unavailable')])
+def test_missing_previous_period_keeps_current_values_and_unknown_comparison(previous):
+    dm = manager()
+    dm._get_reporting_name = lambda uid, username: username
+    dm.fetch_annotator_efficiency.side_effect = [({}, [
+        {'username': 'Riya', 'completed_duration_seconds': 7200, 'rework_duration_seconds': 900},
+        {'username': 'Admin', 'completed_duration_seconds': 99999},
+    ]), previous]
+    values = dm.get_summary_kpis('2026-11-01', '2026-11-17')
+    assert values['total_approved_duration'] == 7200
+    assert values['rework_duration'] == 900
+    assert values['prev_approved_duration'] is None and values['approved_pct'] is None
+    selected = selected_summary({'all': values, 'users': {'Riya': values}}, ['Riya'], ['Riya'])
+    assert selected['total_approved_duration'] == 7200 and selected['approved_pct'] is None

@@ -34,7 +34,7 @@ def fixture_data():
 
 
 def heatmap_hours(figure):
-    assert len(figure.data) == 1
+    assert len(figure.data) == 2
     return sum(float(n) for row in figure.data[0].z for n in row if n is not None)
 
 
@@ -68,7 +68,10 @@ def test_rework_matrix_matches_source_hours_for_each_state(state, expected_hours
                                    completion_state=state, show_counts=show_counts)
     assert heatmap_hours(fig) == pytest.approx(expected_hours)
     # Colour intensity always measures HOURS even if count annotations are on.
-    assert "Duration" in str(fig.data[0].colorbar.title)
+    assert fig.data[0].showscale is False
+    assert sum(fig.layout.meta["column_totals"]) == pytest.approx(expected_hours)
+    for column in range(4):
+        assert fig.layout.meta["column_totals"][column] == pytest.approx(sum(row[column] for row in fig.data[0].z))
     assert fig.layout.meta["show_counts"] is show_counts
     assert "Each batch duration counted once" in fig.layout.title.subtitle.text
     if state == "All":
@@ -82,7 +85,7 @@ def test_rework_toggle_callback_repaints_without_source_reads():
                if "rework-ratio-chart.figure" in key and "@" not in key)
     callback = handlers[key]
     assert {"id": "rework-completion-state", "property": "value"} in callback["inputs"]
-    assert {"id": "rework-ratio-chart-counts", "property": "value"} in callback["inputs"]
+    assert not any(item["id"].endswith("-counts") for item in callback["inputs"])
     batches, returns = fixture_data()
     frame = batch_ratios(batches, returns, "2026-11-01", "2026-11-17",
                          lambda batch: batch["user"])
@@ -91,10 +94,14 @@ def test_rework_toggle_callback_repaints_without_source_reads():
               "data": frame_payload(frame, "rework")}
     request = {"id": "r1", "start": "2026-11-01", "end": "2026-11-17"}
     fn = callback["callback"].__wrapped__
-    all_fig, _, _, _ = fn(request, packet, None, 0, [], "All", None, "/", None)
-    complete_fig, _, _, _ = fn(request, packet, None, 0, [], "Completed", None, "/", None)
-    pending_fig, _, _, _ = fn(request, packet, None, 0, [], "Pending approvals", None, "/", None)
-    assert heatmap_hours(all_fig) == pytest.approx(12)
+    completed = {**packet, 'data': frame_payload(pd.DataFrame([
+        {'User': 'A', 'Completed Duration': 7200, 'Completed Tasks': 2},
+        {'User': 'B', 'Completed Duration': 21600, 'Completed Tasks': 6},
+    ]), 'completion')}
+    all_fig, _, _, _, _ = fn(request, packet, None, 0, "All", completed, None, None, "/", None)
+    complete_fig, _, _, _, _ = fn(request, packet, None, 0, "Completed", completed, None, None, "/", None)
+    pending_fig, _, _, _, _ = fn(request, packet, None, 0, "Pending approvals", completed, None, None, "/", None)
+    assert sum(all_fig.layout.meta['column_totals']) == pytest.approx(12)
     assert heatmap_hours(complete_fig) == pytest.approx(8)
     assert heatmap_hours(pending_fig) == pytest.approx(4)
     manager.get_batch_rework_ratio_df.assert_not_called()

@@ -74,6 +74,91 @@ async function until(expression, timeout = 20000) {
 const visible = `el => !!(el.offsetWidth && el.offsetHeight && el.getClientRects().length)`;
 const results = [];
 try {
+    if (process.argv[2] === 'consistency') {
+        const setScenario = body => qaFetch(qaOrigin + '/qa/scenario', {method: 'POST',
+            headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+        await setScenario({mode: 'tiers', team_size: 12, pending_limit: 8, seed_panels: true,
+            auditor_seconds: 7200, admin_seconds: 1800, dashboard_delay: 0, rework_delay: 0});
+        const inspect = `(() => {
+            const plot = id => document.querySelector('#'+id+' .js-plotly-plot');
+            const seconds = text => text.split(':').reduce((n,v)=>n*60+Number(v),0);
+            const review = plot('review-workload-chart'), pending = plot('pending-chart');
+            const assigned = plot('assigned-chart'), completed = plot('individual-chart');
+            const rework = plot('rework-ratio-chart');
+            if (!review?.data?.length || !pending?.data?.length || !rework?.data?.length || !completed?.data?.length || !assigned?.data?.length) return null;
+            const matrices = [pending,rework].map(p=>({
+                rows:p.data[0].y.length, last:p.data.at(-1).y[0], scale:p.data[0].showscale,
+                totals:p.layout.meta.column_totals, sums:p.data[0].z[0].map((_,i)=>p.data[0].z.reduce((n,row)=>n+row[i],0)),
+                maximum:p.data[0].zmax, cellMaximum:Math.max(...p.data[0].z.flat()),
+                neutral:p.data.at(-1).colorscale[0][1]===p.data.at(-1).colorscale[1][1],
+                rect:p.getBoundingClientRect().toJSON(),
+            }));
+            return {matrices,
+                review:seconds(document.querySelector('#kpi-review .kpiu-row-value').textContent),
+                donut:review.data[0].values.reduce((a,b)=>a+b,0),
+                pending:pending.layout.meta.column_totals.reduce((a,b)=>a+b,0)*3600,
+                assigned:seconds(document.querySelector('#kpi-assigned .kpiu-row-value').textContent),
+                assignedChart:assigned.data.filter(t=>t.type==='bar').reduce((n,t)=>n+t.x.reduce((a,b)=>a+b,0)*3600,0),
+                approved:seconds(document.querySelector('#kpi-approved-value').textContent),
+                completed:completed.data.filter(t=>t.type==='scatter' && t.mode?.includes('markers')).reduce((n,t)=>n+t.y.reduce((a,b)=>a+b,0)*3600,0),
+                checkboxes:document.querySelectorAll('.chart-controls input[type=checkbox]').length,
+                captureDetails:[...document.querySelectorAll('#dashboard-page summary')].some(el=>el.textContent.includes('Capture')),
+                documentWidth:document.documentElement.scrollWidth,viewport:innerWidth,
+                reworkText:document.querySelector('#kpi-rework-breakdown').textContent,
+                progression:plot('approval-progression-chart')?.data?.[0]?.text,
+                pyramidSeconds:(plot('approval-progression-chart')?.data?.[0]?.x?.at(-1)||0)*3600,
+                completedHeatmap:rework.layout.meta.column_totals.at(-1)*3600,
+            };
+        })()`;
+        for (const width of [390,768,1366,1920]) {
+            await call('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:false});
+            await call('Page.navigate',{url:qaOrigin+'/'});
+            await until(`document.querySelector('#rework-ratio-chart .js-plotly-plot')?.data?.[0]?.y?.length === 12`);
+            await until(`!Array.from(document.querySelectorAll('[data-dash-is-loading="true"]')).some(${visible})`);
+            for (const theme of ['dark','light']) {
+                const dark = await evaluate(`document.querySelector('#main-container').className.includes('theme-dark')`);
+                if (dark !== (theme==='dark')) {
+                    await evaluate(`document.querySelector('#theme-toggle').click()`);
+                    await until(`document.querySelector('#kpi-overview').className.includes('theme-${theme}')`);
+                    await until(`!Array.from(document.querySelectorAll('[data-dash-is-loading="true"]')).some(${visible})`);
+                }
+                const evidence = await until(inspect);
+                for (const matrix of evidence.matrices) {
+                    if (matrix.last !== '<b>Total</b>' || matrix.scale !== false || !matrix.neutral || Math.abs(matrix.maximum-matrix.cellMaximum)>1e-6 ||
+                        matrix.totals.some((v,i)=>Math.abs(v-matrix.sums[i])>1e-6)) throw new Error('Incorrect matrix total');
+                }
+                if (evidence.checkboxes || evidence.captureDetails || evidence.documentWidth>width+1 ||
+                    Math.abs(evidence.review-evidence.donut)>1 || Math.abs(evidence.review-evidence.pending)>1 ||
+                    Math.abs(evidence.assigned-evidence.assignedChart)>1 || Math.abs(evidence.approved-evidence.completed)>1 ||
+                    Math.abs(evidence.approved-evidence.pyramidSeconds)>1 || Math.abs(evidence.approved-evidence.completedHeatmap)>1 ||
+                    evidence.reworkText.includes('Breakdown unavailable')) throw new Error('Overview reconciliation failed: '+JSON.stringify(evidence));
+                await evaluate(`document.querySelector('#kpi-overview').scrollIntoView({block:'start',behavior:'instant'})`);
+                const shot=await call('Page.captureScreenshot',{format:'png'});
+                await writeFile(`${root}/consistency-${width}-${theme}.png`,Buffer.from(shot.data,'base64'));
+                const before=(await (await qaFetch(qaOrigin+'/qa/state')).json()).reads;
+                for (const [state,hours] of [['Completed',12],['Pending approvals',108],['All',120]]) {
+                    await evaluate(`Array.from(document.querySelectorAll('#rework-completion-state input')).find(el=>el.value===${JSON.stringify(state)}).click()`);
+                    await until(`Math.abs(document.querySelector('#rework-ratio-chart .js-plotly-plot').layout.meta.column_totals.reduce((a,b)=>a+b,0)-${hours})<1e-6`);
+                }
+                await evaluate(`Array.from(document.querySelectorAll('#rework-completion-state input')).find(el=>el.value==='Completed').click()`);
+                await until(`document.querySelector('#rework-ratio-chart .js-plotly-plot').layout.title.text.includes('Completed video')`);
+                const after=(await (await qaFetch(qaOrigin+'/qa/state')).json()).reads;
+                if(before!==after) throw new Error('Radio controls fetched source data');
+                await evaluate(`document.querySelector('#rework-ratio-chart').scrollIntoView({block:'center',behavior:'instant'})`);
+                const matrixShot=await call('Page.captureScreenshot',{format:'png'});
+                await writeFile(`${root}/consistency-heatmaps-${width}-${theme}.png`,Buffer.from(matrixShot.data,'base64'));
+                results.push({width,theme,...evidence,radioSourceReads:after-before});
+            }
+        }
+        // A slow summary completing after rework must leave its populated slot intact.
+        await setScenario({dashboard_delay:1,rework_delay:0});
+        await evaluate(`document.querySelector('#refresh-btn').click()`);
+        await until(`!Array.from(document.querySelectorAll('[data-dash-is-loading="true"]')).some(${visible})`,30000);
+        const late=await until(inspect);
+        if(late.reworkText.includes('Breakdown unavailable')) throw new Error('Late summary erased return tiers');
+        results.push({lateSummaryRetained:true});
+        console.log(JSON.stringify({scenarios:results.length,reconciled:true}));
+    }
     if (process.argv[2] === 'local') {
         await call('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1000, deviceScaleFactor: 2, mobile: false});
         await call('Page.navigate', {url: qaOrigin + '/'});
@@ -362,7 +447,7 @@ try {
             results.push({width, ...values, themeToggle: true});
         }
     }
-    for (const mode of (['intensity', 'local', 'modernization', 'controls', 'rework', 'reference', 'reference-light', 'responsive', 'lifecycle', 'labels', 'latency', 'user-latency', 'daily-latency', 'panel-latency', 'range-filters', 'trend-refresh', 'funnel'].includes(process.argv[2]) ? [] : (process.argv[2] || 'normal,many,empty,one,zero,large,failure').split(','))) {
+    for (const mode of (['consistency', 'intensity', 'local', 'modernization', 'controls', 'rework', 'reference', 'reference-light', 'responsive', 'lifecycle', 'labels', 'latency', 'user-latency', 'daily-latency', 'panel-latency', 'range-filters', 'trend-refresh', 'funnel'].includes(process.argv[2]) ? [] : (process.argv[2] || 'normal,many,empty,one,zero,large,failure').split(','))) {
         await qaFetch('http://127.0.0.1:8059/qa/scenario', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode, seconds: 3600, auditor_seconds: 0, admin_seconds: 0, delay: 0})});
         for (const width of (mode === 'normal' || mode === 'many' ? [390, 768, 1366, 1920] : [390])) {
             await call('Emulation.setDeviceMetricsOverride', {width, height: 950, deviceScaleFactor: 1, mobile: false});
