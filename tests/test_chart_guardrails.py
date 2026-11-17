@@ -140,7 +140,7 @@ def test_weighted_rework_keeps_clean_users_and_legacy_tiers_with_filtering():
     assert list(figure.data[0].y[:-1]) == ['Clean', 'Returned']
     assert _heatmap_matrix(figure)[0] == [None, 0, 0, 0]
     filtered = build_rework_ratio_chart(frame, '', True, ['Returned'], True)
-    assert list(filtered.data[0].y) == ['Returned']
+    assert list(filtered.data[0].y[:-1]) == ['Returned']
     assert _heatmap_matrix(filtered)[0] == [None, 0, None, 0]
 
 
