@@ -56,24 +56,13 @@ def test_all_view_excludes_lifetime_completed_inventory_and_filters_people():
     assert not missing.data
 
 
-def test_pyramid_reads_saved_batch_cohort_not_completion_or_sparse_daily_history():
-    from slicing_dashboard.reporting.approval_funnel import cohort_records
+def test_retired_pyramid_cannot_inflate_today_submission_chart():
+    from slicing_dashboard.reporting.daily_output import submitted_video_output
+    from slicing_dashboard.plots.today_submissions_lollipop import build_today_submissions_lollipop
     namespace, _ = application_namespace()
-    handler = namespace['app'].callback_map['approval-progression-chart.figure']['callback'].__wrapped__
-    cohort = cohort_records([], [
-        dict(batch_id='a', batch_date='2026-11-04', status='batch_completed',
-             username='A', total_duration_seconds=7200),
-        dict(batch_id='b', batch_date='2026-11-09', status='batch_pending_admin_review',
-             username='B', total_duration_seconds=3600),
-        dict(batch_id='c', batch_date='2026-11-16', status='batch_pending_auditor_review',
-             username='A', total_duration_seconds=1800),
-    ], lambda batch: batch['username'])
-    data = {'range_start': '2026-10-01', 'range_end': '2026-10-31',
-            'history': [], 'approvals': {'funnel': cohort}}
-    assert not handler(data, None, 0, '/', 'Batches', None, None, None, None).data
-    # The chart must use the *selected calendar range*, not the available
-    # daily-completion history (which can have missing dates).
-    data.update(range_start='2026-11-01', range_end='2026-11-17')
-    chart = handler(data, None, 0, '/', 'Batches', None, None, None, None)
-    assert list(chart.data[0].x) == [3, 2, 1]
-    assert 'Batch stage progression' in chart.layout.title.text
+    assert 'approval-progression-chart.figure' not in namespace['app'].callback_map
+    # The retained batch ledger is not a dated task-submission report.
+    chart = build_today_submissions_lollipop(
+        submitted_video_output(None, expected_date='2026-11-17'))
+    assert not chart.data
+    assert 'No dated submission' in chart.layout.annotations[0].text
