@@ -96,13 +96,10 @@ def render_rework_hours(request, saved, live, selected, theme):
         frame = panel_frame(packet)
         if selected is not None and 'User' in frame:
             frame = frame[frame['User'].isin(selected)]
-        if 'Completion State' not in frame:
-            return build_rework_hours_metric(status='Pending batch return tiers unavailable.', is_dark=dark)
-        frame = frame[frame['Completion State'] == 'Pending approvals']
         hours = rework_hours(frame)
     except (KeyError, TypeError, ValueError):
         return build_rework_hours_metric(status='Rework hours unavailable. Refresh to retry.', is_dark=dark)
-    note = ('Pending batch inventory only; period-completed return-tier split unavailable.' +
+    note = ('Original batch duration by recorded return tier; not additional rework labor.' +
             (' Some tier hours are unavailable.' if any(value is None for value in hours.values()) else ''))
     note += ' ' + visible_status(request, saved, live)
     return build_rework_hours_metric(hours, status=note, is_dark=dark)
@@ -243,12 +240,7 @@ def _register_panel(app, manager, roster, kind):
         outputs.append(Output('review-workload-chart', 'figure'))
     rework_input = [Input('rework-completion-state', 'value')] if kind == 'rework' else []
     rework_state = [State('rework-completion-state', 'value')] if kind == 'rework' else []
-    completion_inputs = ([Input('dashboard-saved-completion', 'data'), Input('dashboard-live-completion', 'data')]
-                         if kind == 'rework' else [])
-    completion_states = ([State('dashboard-saved-completion', 'data'), State('dashboard-live-completion', 'data')]
-                         if kind == 'rework' else [])
-
-    def render(request, saved, live, selected, theme, completion_state='All', saved_completion=None, live_completion=None):
+    def render(request, saved, live, selected, theme, completion_state='All'):
         if kind == 'summary':
             from slicing_dashboard.plots.kpi_overview import build_secondary_metrics, _percent, _comparison
             packet, status = choose_packet(request, saved, live)
@@ -258,17 +250,11 @@ def _register_panel(app, manager, roster, kind):
                      'Updated' if current and current.get('available') else 'Saved data')
             return (build_secondary_metrics(kpis), visible_status(request, saved, live) or label,
                     _percent(kpis.get('approved_pct')), 'kpiu-trend kpiu-' + _comparison(kpis.get('approved_pct')))
-        if kind == 'rework' and completion_state in ('All', 'Completed'):
-            from slicing_dashboard.plots.period_rework import build_period_rework
-            import pandas as pd
-            packet, _ = choose_packet(request, saved, live)
-            frame = panel_frame(packet) if packet else pd.DataFrame()
-            figure = build_period_rework(frame, period_completion(request, saved_completion, live_completion),
-                completion_state, (theme or 0) % 2 == 0, selected,
-                pending_available=bool(packet and 'Completion State' in frame))
-        else:
-            figure, _ = render_panel(kind, request, saved, live, selected, theme, roster,
-                                     completion_state=completion_state)
+        # The rework chart is always the persisted batch/return-tier cohort.
+        # Period-completed task hours belong to the independent completion
+        # chart, never a fifth heatmap column or a replacement for tier cells.
+        figure, _ = render_panel(kind, request, saved, live, selected, theme, roster,
+                                 completion_state=completion_state)
         result = (figure, visible_status(request, saved, live), overview_values(kind, request, saved, live, selected, theme))
         if kind == 'pending':
             from slicing_dashboard.plots.overview_charts import build_review_workload_donut
@@ -301,14 +287,11 @@ def _register_panel(app, manager, roster, kind):
                   Output(f'dashboard-painted-{kind}', 'data'),
                   Input(request_store, 'data'), Input(f'dashboard-saved-{kind}', 'data'),
                   Input('selected-users-store', 'data'), Input('theme-toggle', 'n_clicks'),
-                  *rework_input, *completion_inputs,
+                  *rework_input,
                   State(f'dashboard-live-{kind}', 'data'), State('report-location', 'pathname'),
                   State(f'dashboard-ready-{kind}', 'data'))
     def paint_saved(request, saved, selected, theme, *arguments):
         completion_state, arguments = ((arguments[0] or 'All'), arguments[1:]) if kind == 'rework' else ('All', arguments)
-        saved_completion, live_completion = (None, None)
-        if kind == 'rework' and len(arguments) == 5:
-            saved_completion, live_completion, *arguments = arguments
         live, pathname, ready = arguments
         if not request or pathname not in (None, '/', '/dashboard'):
             raise dash.exceptions.PreventUpdate
@@ -318,7 +301,7 @@ def _register_panel(app, manager, roster, kind):
         start_capture = (dash.no_update if viewer_mode() or request.get('frozen') or matching_packet(request, ready)
                          else {'request_id': request['id']})
         painted = {'request_id': request['id'], 'id': uuid4().hex}
-        return *render(request, saved, live, selected, theme, completion_state, saved_completion, live_completion), start_capture, painted
+        return *render(request, saved, live, selected, theme, completion_state), start_capture, painted
 
     @app.callback(*[Output(output.component_id, output.component_property, allow_duplicate=True)
                     for output in outputs],
@@ -326,8 +309,8 @@ def _register_panel(app, manager, roster, kind):
                   Input(f'dashboard-painted-{kind}', 'data'),
                   State(request_store, 'data'), State(f'dashboard-saved-{kind}', 'data'),
                   State('selected-users-store', 'data'), State('theme-toggle', 'n_clicks'),
-                  State('report-location', 'pathname'), *rework_state, *completion_states, prevent_initial_call=True)
-    def paint_live(live, painted, request, saved, selected, theme, pathname, completion_state='All', saved_completion=None, live_completion=None):
+                  State('report-location', 'pathname'), *rework_state, prevent_initial_call=True)
+    def paint_live(live, painted, request, saved, selected, theme, pathname, completion_state='All'):
         if not request or request.get('frozen') or not matching_packet(request, live) or pathname not in (None, '/', '/dashboard'):
             raise dash.exceptions.PreventUpdate
-        return render(request, saved, live, selected, theme, completion_state or 'All', saved_completion, live_completion)
+        return render(request, saved, live, selected, theme, completion_state or 'All')
