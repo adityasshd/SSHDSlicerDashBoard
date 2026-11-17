@@ -99,13 +99,13 @@ def build_rework_hours_metric(hours=None, status=None, is_dark=True):
     returned_total = sum(returned) if all(value is not None for value in returned) else None
     return [
         html.Div([
-            html.Span('Batch hours by rework tier', className='kpiu-label'),
-            html.Strong('Reworked: ' + _hours(returned_total), className='kpiu-row-value'),
+            html.Span('Batch duration by return tier', className='kpiu-label'),
+            html.Strong('Returned batches: ' + _hours(returned_total), className='kpiu-row-value'),
         ], className='kpiu-row-heading'),
         _parts([(label, (hours or {}).get(tier), color)
                 for label, tier, color in zip(labels, TIERS, colors)],
-               'Video hours by recorded rework count', format_value=_hours),
-        html.Div('Each batch counted once · duration HH:MM:SS', className='kpiu-meta'),
+               'Original batch duration by recorded return count', format_value=_hours),
+        html.Div('Original video duration counted once per batch; not additional hours spent reworking · HH:MM:SS', className='kpiu-meta'),
         html.Div(status, className='kpiu-meta') if status else None,
     ]
 
