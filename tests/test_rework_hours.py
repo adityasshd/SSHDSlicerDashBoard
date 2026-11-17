@@ -58,6 +58,19 @@ def test_user_filter_scopes_hours_before_aggregation(selected, expected):
     assert 'Breakdown unavailable' not in text
 
 
+def test_rework_breakdown_matches_selected_completed_vs_pending_heatmap_mode():
+    completed = payload_text(render_rework_hours(
+        REQUEST, None, packet(), None, 0, completion_state='Completed'))
+    pending = payload_text(render_rework_hours(
+        REQUEST, None, packet(), None, 0, completion_state='Pending approvals'))
+    assert 'Returned batches: 12:00:00' in completed
+    assert 'Returned batches: 08:00:00' in pending
+    assert 'Latest saved batch status: Completed' in completed
+    assert 'Latest saved batch status: Pending approvals' in pending
+    assert 'Original batch duration' in completed
+    assert 'Original batch duration' in pending
+
+
 def test_legacy_upper_tiers_merge_hours_without_multiplying_returns():
     frame = pd.DataFrame([{'User': 'A', 'Total Batches': 4, 'No Rework': 1,
         '3 Reworks': 1, '4 Reworks': 1, '5+ Reworks': 1, '5+ Return Count': 8,
