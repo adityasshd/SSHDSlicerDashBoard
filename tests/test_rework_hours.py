@@ -43,7 +43,7 @@ def test_kpi_bar_uses_duration_shares_instead_of_batch_or_return_counts():
     content = render_rework_hours(REQUEST, None, packet(), None, 0)
     text = payload_text(content)
     assert '15:00:00' in text and '01:00:00' in text
-    assert 'Reworked: 20:00:00' in text
+    assert 'Returned batches: 20:00:00' in text
     bars = [node for node in components(content) if getattr(node, 'role', None) == 'progressbar']
     shares = [node.to_plotly_json()['props']['aria-valuenow'] for node in bars]
     assert shares == pytest.approx([100 / 21, 200 / 21, 300 / 21, 1500 / 21], abs=.01)
@@ -96,7 +96,7 @@ def test_tier_durations_must_reconcile_with_the_saved_batch_total():
 def test_reworked_total_is_unavailable_if_one_returned_tier_is_unknown():
     from slicing_dashboard.plots.kpi_overview import build_rework_hours_metric
     content = build_rework_hours_metric({'No Rework': 90, '1 Rework': 2, '2 Reworks': None, '3+ Reworks': 4})
-    assert any(getattr(node, 'children', None) == 'Reworked: —' for node in components(content))
+    assert any(getattr(node, 'children', None) == 'Returned batches: —' for node in components(content))
     assert 'Breakdown unavailable' in payload_text(content)
 
 
