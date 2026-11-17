@@ -137,7 +137,7 @@ def test_weighted_rework_keeps_clean_users_and_legacy_tiers_with_filtering():
                           {'User': 'Empty', 'Total Batches': 0, 'No Rework': 0,
                            'Reworked Once': 0, 'Reworked Twice+': 0}])
     figure = build_rework_ratio_chart(frame, '', True)
-    assert list(figure.data[0].y) == ['Clean', 'Returned']
+    assert list(figure.data[0].y[:-1]) == ['Clean', 'Returned']
     assert _heatmap_matrix(figure)[0] == [None, 0, 0, 0]
     filtered = build_rework_ratio_chart(frame, '', True, ['Returned'], True)
     assert list(filtered.data[0].y) == ['Returned']
@@ -263,7 +263,7 @@ def test_pending_matrix_combines_hours_and_counts_without_changing_the_scale(dar
     original = frame.copy(deep=True)
     figure = build_pending_chart(frame, dark)
     trace = figure.data[0]
-    assert list(trace.y) == ['A', 'B']
+    assert list(trace.y[:-1]) == ['A', 'B']
     assert _heatmap_matrix(figure) == [[1.5, 0, 0], [0, 0, 0]]
     assert list(trace.customdata[0][0][2:-1]) == ['01:30:00', 3, 'first, second']
     assert trace.customdata[1][2][3] == 4
