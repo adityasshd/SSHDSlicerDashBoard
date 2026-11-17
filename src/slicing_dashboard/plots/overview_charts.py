@@ -47,55 +47,56 @@ def build_review_workload_donut(frame, is_dark=True):
 
 @safe_chart(height=340)
 def build_approval_progression(payload, dates, selected_users=None, is_dark=True, completion=None):
-    """Dated review decisions plus the exact selected-period completion source.
+    """Three nested approval stages for the same dated *batch cohort*.
 
-    A current batch status and its inventory date cannot establish when it
-    completed. Never substitute that lifetime batch duration for period output.
+    Values are unique batches by latest known outcome, not task completions
+    and not independently summed review-event durations. The separate
+    completed-hours chart remains the authoritative period task metric.
+    The optional completion argument is retained for existing callers only.
     """
-    from slicing_dashboard.reporting.approval_progression import prepare_progression
+    from slicing_dashboard.reporting.approval_funnel import prepare_funnel, STAGES
     if selected_users == []:
         return state_figure('No users selected.', is_dark, 340)
-    report = prepare_progression(payload, dates, selected_users, completion)
-    rows = report['rows'][:2]
-    final = report['rows'][-1]
-    if final['available']:
-        rows.append({**final, 'label': 'Admin / completed', 'batch_count': None})
-    else:
-        # A retained Admin review is an estimate from dated evidence, never the
-        # current batch-completed inventory or an undated synthetic prerequisite.
-        rows.append({**report['rows'][2], 'label': 'Admin approved'})
-    if not any(row['available'] for row in rows):
-        return state_figure('No dated approval or period completion data for this selection.', is_dark, 340)
-    values, texts, custom = [], [], []
-    for row in rows:
-        available = row['available'] and not row['missing']
-        duration = format_seconds(row['seconds']) if available else 'Unavailable'
-        count = row.get('batch_count', row['count'])
-        count_label = f'{int(count)} {"batch" if count == 1 else "batches"}' if count is not None else 'Batch count unavailable'
-        values.append(row['seconds'] / 3600 if available else None)
-        texts.append(duration + '<br>' + count_label)
-        custom.append([duration, count_label,
-                       f"{int(row['count'])} completed tasks" if row['unit'] == 'tasks' and row['count'] is not None else
-                       'Unique batches approved in this period; whole-batch duration estimate'])
+    if not isinstance(payload, dict) or not payload.get('rows'):
+        return state_figure('No saved batch approval cohort for this period.', is_dark, 340)
+    scope = set(dates)
+    selected = set(selected_users) if selected_users is not None else None
+    rows = [row for row in payload['rows'] if row.get('date') in scope and
+            (selected is None or row.get('member') in selected)]
+    if not rows or all(all(outcome == 'Unknown' for outcome in row.get('outcomes', [])) for row in rows):
+        return state_figure('No recorded batch approval stages for this selection.', is_dark, 340)
+    _, totals = prepare_funnel(payload, dates, selected_users)
+    values = [totals[stage]['Approved']['count'] for stage in STAGES]
+    if not any(values):
+        return state_figure('No batches have passed a review stage yet.', is_dark, 340)
+    if any(left < right for left, right in zip(values, values[1:])):
+        raise ValueError('Approval stages do not form a nested batch cohort')
+    descriptions = []
+    for stage, count in zip(STAGES, values):
+        metrics = totals[stage]['Approved']
+        hours = (format_seconds(metrics['seconds'])
+                 if not metrics['missing'] else 'Incomplete duration evidence')
+        descriptions.append([f'{count} verified batch outcomes', hours])
     theme = theme_ctx(is_dark)
     colors = REVIEW_COLORS if is_dark else ['#165a50', '#78b844', '#8b5cf6']
     figure = go.Figure(go.Funnel(
-        y=[row['label'] for row in rows], x=values, orientation='h',
-        text=texts, texttemplate='%{text}', textposition='inside', customdata=custom,
+        y=list(STAGES), x=values, orientation='h',
+        texttemplate='%{value} batches', textposition='inside',
+        customdata=descriptions,
         marker={'color': colors, 'line': {'width': 0}},
-        connector={'line': {'width': 0}},
-        hovertemplate='<b>%{y}</b><br>%{customdata[0]}<br>%{customdata[1]}<br>%{customdata[2]}<extra></extra>',
+        connector={'line': {'color': 'rgba(148,163,184,.22)', 'width': 1}},
+        hovertemplate='<b>%{y} approved</b><br>%{x} batches'
+                      '<br>Batch-cohort video duration: %{customdata[1]}<extra></extra>',
     ))
-    for row in rows:
-        if not row['available'] or row['missing']:
-            figure.add_annotation(x=.5, xref='paper', y=row['label'], yref='y',
-                                  text='Unavailable', showarrow=False, font={'color': theme['font_color']})
     figure.update_layout(template=theme['template'], height=340,
-        title={'text': 'Approval progression', 'subtitle': {'text':
-               'Approvals within selected period<br>Admin completion matches Overview<br>Stage totals are independent',
-               'font': {'size': 10}}},
+        title={'text': 'Batch approval progression',
+               'subtitle': {'text': 'One batch cohort · latest known outcome'
+                           '<br>Not period-completed task hours',
+                            'font': {'size': 10}}},
         paper_bgcolor=theme['bg_color'], plot_bgcolor=theme['bg_color'], showlegend=False,
         font={'color': theme['font_color'], 'family': 'Inter, sans-serif'},
-        margin={'l': 108, 'r': 20, 't': 82, 'b': 24},
-        xaxis={'visible': False}, yaxis={'automargin': True}, uirevision='approval-progression-period')
+        hoverlabel={'bgcolor': theme['hover_bg'], 'font_color': theme['hover_fg']},
+        margin={'l': 78, 'r': 20, 't': 73, 'b': 24},
+        xaxis={'visible': False}, yaxis={'automargin': True}, uirevision='approval-cohort-v2',
+        meta={'metric': 'distinct_batch_stage_count', 'stage_counts': values})
     return figure

@@ -36,10 +36,10 @@ def test_completed_keeps_tier_columns_without_inventing_period_attribution(dark)
     assert list(chart.data[1].y) == ['<b>Total</b>']
     assert chart.data[1].colorscale[0][1] == chart.data[1].colorscale[1][1]
     assert not chart.data[0].showscale and not chart.data[1].showscale
-    pyramid = build_approval_progression({}, ['2026-11-01', '2026-11-17'], completion=COMPLETION, is_dark=dark)
-    assert pyramid.data[0].x[-1] * 3600 == pytest.approx(227009.87)
-    assert pyramid.data[0].customdata[-1][0] == '63:03:30'
-    assert pyramid.data[0].customdata[-1][1] == 'Batch count unavailable'
+    # The retired mixed-unit period view is not used by Dashboard heatmap
+    # or pyramid. Exact period output stays in the completion chart.
+    assert not build_approval_progression({}, ['2026-11-01', '2026-11-17'],
+                                          completion=COMPLETION, is_dark=dark).data
 
 
 def test_all_view_excludes_lifetime_completed_inventory_and_filters_people():
@@ -52,17 +52,24 @@ def test_all_view_excludes_lifetime_completed_inventory_and_filters_people():
     assert not missing.data
 
 
-def test_progression_rejects_a_completion_packet_from_another_period():
+def test_pyramid_reads_saved_batch_cohort_not_completion_or_sparse_daily_history():
+    from slicing_dashboard.reporting.approval_funnel import cohort_records
     namespace, _ = application_namespace()
     handler = namespace['app'].callback_map['approval-progression-chart.figure']['callback'].__wrapped__
-    request = {'id': 'new', 'start': '2026-11-01', 'end': '2026-11-17'}
-    packet = {'request_id': 'new', 'available': True, 'captured_at': 'test',
-              'data': frame_payload(pd.DataFrame([
-                  {'User': row['User'], 'Completed Duration': row['seconds'], 'Completed Tasks': row['tasks']}
-                  for row in COMPLETION['rows']]), 'completion')}
+    cohort = cohort_records([], [
+        dict(batch_id='a', batch_date='2026-11-04', status='batch_completed',
+             username='A', total_duration_seconds=7200),
+        dict(batch_id='b', batch_date='2026-11-09', status='batch_pending_admin_review',
+             username='B', total_duration_seconds=3600),
+        dict(batch_id='c', batch_date='2026-11-16', status='batch_pending_auditor_review',
+             username='A', total_duration_seconds=1800),
+    ], lambda batch: batch['username'])
     data = {'range_start': '2026-10-01', 'range_end': '2026-10-31',
-            'history': [{'date': '2026-10-01'}]}
-    assert not handler(data, None, 0, '/', request, packet, None, None).data
-    data.update(range_start=request['start'], range_end=request['end'], history=[{'date': request['start']}])
-    chart = handler(data, None, 0, '/', request, packet, None, None)
-    assert chart.data[0].x[-1] * 3600 == pytest.approx(227009.87)
+            'history': [], 'approvals': {'funnel': cohort}}
+    assert not handler(data, None, 0, '/', None).data
+    # The chart must use the *selected calendar range*, not the available
+    # daily-completion history (which can have missing dates).
+    data.update(range_start='2026-11-01', range_end='2026-11-17')
+    chart = handler(data, None, 0, '/', None)
+    assert list(chart.data[0].x) == [3, 2, 1]
+    assert 'Batch approval progression' in chart.layout.title.text

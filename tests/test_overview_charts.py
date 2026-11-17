@@ -21,27 +21,34 @@ def test_review_donut_sums_disjoint_stages_and_keeps_role_colors(dark):
     assert figure.data[0].customdata[0][1] == 3
 
 
-def test_progression_uses_dated_approvals_and_native_period_completion():
-    payload = {'rows': [
-        {'date': '2026-11-01', 'member': 'A', 'batch_id': 'a', 'stage': 'Leader', 'seconds': 7200, 'event_id': '1'},
-        {'date': '2026-11-02', 'member': 'A', 'batch_id': 'a', 'stage': 'Leader', 'seconds': 7200, 'event_id': '2'},
-        {'date': '2026-10-31', 'member': 'A', 'batch_id': 'old', 'stage': 'Admin', 'seconds': 999999},
-    ], 'funnel': cohort_records([], [dict(batch_id='lifetime', batch_date='2026-11-01',
-         username='A', total_duration_seconds=546163, status='batch_completed')], lambda row: row['username'])}
+def test_progression_restores_nested_batch_counts_and_does_not_mix_completed_hours():
+    batches = [
+        dict(batch_id='a', batch_date='2026-11-01', username='A',
+             status='batch_completed', total_duration_seconds=7200),
+        dict(batch_id='b', batch_date='2026-11-02', username='A',
+             status='batch_pending_admin_review', total_duration_seconds=3600),
+        dict(batch_id='c', batch_date='2026-11-02', username='B',
+             status='batch_pending_auditor_review', total_duration_seconds=1800),
+    ]
+    payload = cohort_records([], batches, lambda batch: batch['username'])
+    # Period-completed task output has a different unit and must not replace
+    # the Admin batch-count bar, even if it is much larger.
     completion = {'available': True, 'rows': [{'User': 'A', 'seconds': 227009.866, 'tasks': 1710}]}
-    figure = build_approval_progression(payload, ['2026-11-01', '2026-11-02'], ['A'], True, completion)
-    assert list(figure.data[0].x) == [2, None, 227009.866 / 3600]
-    assert figure.data[0].customdata[0][1] == '1 batch'
-    assert figure.data[0].customdata[2][0] == '63:03:30'
-    assert figure.data[0].customdata[2][1] == 'Batch count unavailable'
-    assert any(item.text == 'Unavailable' for item in figure.layout.annotations)
-    assert not build_approval_progression(payload, ['2026-11-01'], [], completion=completion).data
+    dates = ['2026-11-01', '2026-11-02']
+    figure = build_approval_progression(payload, dates, None, True, completion)
+    assert list(figure.data[0].x) == [3, 2, 1]
+    assert list(figure.data[0].y) == ['Leader', 'Auditor', 'Admin']
+    assert figure.layout.meta['metric'] == 'distinct_batch_stage_count'
+    assert 'Not period-completed task hours' in figure.layout.title.subtitle.text
+    assert list(build_approval_progression(payload, dates, ['A'], True, completion).data[0].x) == [2, 2, 1]
+    assert not build_approval_progression(payload, dates, [], completion=completion).data
 
 
-def test_lifetime_status_without_dates_cannot_invent_period_approval_hours():
+def test_out_of_range_cohort_cannot_invent_approval_history():
     payload = cohort_records([], [dict(batch_id='old', batch_date='2026-11-01', username='A',
         total_duration_seconds=546163, status='batch_completed')], lambda row: row['username'])
-    assert not build_approval_progression(payload, ['2026-11-01']).data
+    assert not build_approval_progression(payload, ['2026-10-31']).data
+    assert list(build_approval_progression(payload, ['2026-11-01']).data[0].x) == [1, 1, 1]
 
 
 def test_unknown_and_zero_sources_do_not_draw_invented_funnel_or_donut():
