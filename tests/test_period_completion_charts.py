@@ -72,4 +72,4 @@ def test_pyramid_reads_saved_batch_cohort_not_completion_or_sparse_daily_history
     data.update(range_start='2026-11-01', range_end='2026-11-17')
     chart = handler(data, None, 0, '/', None)
     assert list(chart.data[0].x) == [3, 2, 1]
-    assert 'Batch approval progression' in chart.layout.title.text
+    assert 'Batch stage progression' in chart.layout.title.text
