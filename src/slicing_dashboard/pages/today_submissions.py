@@ -1,6 +1,6 @@
 """Saved-first today-submission plot: no task API calls from chart callbacks."""
 import dash
-from dash import Input, Output, State
+from dash import Input, Output
 
 from slicing_dashboard.management.periods import today_iso
 from slicing_dashboard.plots.today_submissions_lollipop import (
@@ -40,7 +40,7 @@ def register_today_submissions(app, manager):
         Input('report-location', 'pathname'),
         Input('refresh-btn', 'n_clicks'),
         Input('auto-refresh-interval', 'n_intervals'),
-        State('dashboard-trend-store', 'data'),
+        Input('dashboard-trend-store', 'data'),
     )
     def load_today(pathname, _clicks, _intervals, trend):
         if pathname not in (None, '/', '/dashboard'):
