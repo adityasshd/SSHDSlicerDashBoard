@@ -39,7 +39,7 @@ def test_progression_restores_nested_batch_counts_and_does_not_mix_completed_hou
     assert list(figure.data[0].x) == [3, 2, 1]
     assert list(figure.data[0].y) == ['Leader', 'Auditor', 'Admin']
     assert figure.layout.meta['metric'] == 'distinct_batch_stage_count'
-    assert 'Not period-completed task hours' in figure.layout.title.subtitle.text
+    assert 'Use Completed Hours for verified period output' in figure.layout.title.subtitle.text
     assert list(build_approval_progression(payload, dates, ['A'], True, completion).data[0].x) == [2, 2, 1]
     assert not build_approval_progression(payload, dates, [], completion=completion).data
 
