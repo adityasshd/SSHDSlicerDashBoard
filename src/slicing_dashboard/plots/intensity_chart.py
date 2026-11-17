@@ -77,7 +77,9 @@ def intensity_chart(users, categories, metrics, customdata, hovertemplate, title
             name='Total',
         ))
     figure.update_layout(
-        title={'text': title, 'subtitle': {'text': subtitle or '', 'font': {'size': 10}}},
+        title={'text': title, 'subtitle': {
+            'text': ((subtitle + ' · ') if subtitle else '') + 'Color intensity relative within each column',
+            'font': {'size': 10}}},
         template=theme['template'], paper_bgcolor=theme['bg_color'], plot_bgcolor=theme['bg_color'],
         font={'family': 'Inter, sans-serif', 'size': 12, 'color': theme['font_color']},
         height=max(340, len(users) * 30 + 150),
