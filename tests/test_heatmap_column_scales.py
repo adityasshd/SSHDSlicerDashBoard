@@ -1,6 +1,4 @@
-"""Independent heatmap column color ranges must never change source values."""
-import copy
-
+"""Column-local heatmap color without separate Plotly cell geometry."""
 import pytest
 
 from slicing_dashboard.plots.intensity_chart import intensity_chart
@@ -9,8 +7,7 @@ from slicing_dashboard.plots.intensity_chart import intensity_chart
 def fixture(hours_b=100, *, with_total=True):
     users = ['A', 'B'] + (['<b>Total</b>'] if with_total else [])
     categories = ['No Rework', '1 Rework', '2 Reworks']
-    values = [[1.0, float(hours_b), None],
-              [2.0, 10.0, 0.0]]
+    values = [[1.0, float(hours_b), None], [2.0, 10.0, 0.0]]
     counts = [[1, 2, 0], [2, 1, 0]]
     if with_total:
         values.append([3.0, float(hours_b) + 10, None])
@@ -32,45 +29,53 @@ def render(hours_b=100, *, with_total=True, dark=True, counts=False):
 
 
 @pytest.mark.parametrize('dark', [False, True])
-def test_each_category_has_its_own_original_hour_range(dark):
+def test_all_categories_and_total_use_one_aligned_matrix(dark):
     fig = render(dark=dark)
-    assert len(fig.data) == 4  # one trace / column plus neutral totals
-    assert [list(trace.x) for trace in fig.data[:3]] == [
-        ['No Rework'], ['1 Rework'], ['2 Reworks']]
-    assert [trace.zmax for trace in fig.data[:3]] == [2, 100, 1]
-    assert [list(trace.z) for trace in fig.data[:3]] == [
-        [[1], [2]], [[100], [10]], [[None], [0]]]
-    assert [trace.customdata[0][0][0] for trace in fig.data[:3]] == [
-        'A-No Rework', 'A-1 Rework', 'A-2 Reworks']
-    assert list(fig.data[-1].y) == ['<b>Total</b>']
-    assert list(fig.data[-1].z[0]) == [3, 110, None]
-    assert fig.data[-1].colorscale[0][1] == fig.data[-1].colorscale[-1][1]
+    assert len(fig.data) == 1  # no detached one-column or one-row Heatmaps
+    trace = fig.data[0]
+    assert list(trace.x) == ['No Rework', '1 Rework', '2 Reworks']
+    assert list(trace.y) == ['A', 'B', '<b>Total</b>']
+    assert [list(row) for row in trace.z] == [
+        [.5, 1, None], [1, .1, 0], [-1, -1, -1]]
+    assert trace.zmin == -1 and trace.zmax == 1
+    assert list(trace.customdata[0][0]) == ['A-No Rework', 0, 1.0]
+    assert trace.customdata[1][1][-1] == 10.0
+    assert [cell[-1] for cell in trace.customdata[-1]] == [3.0, 110.0, None]
+    assert trace.colorscale[0][1] == trace.colorscale[1][1]  # neutral Total band
     assert fig.layout.meta['color_scope'] == 'per_column'
+    assert fig.layout.meta['single_aligned_matrix'] is True
     assert fig.layout.meta['column_maxima'] == [2, 100, 0]
     assert fig.layout.meta['column_totals'] == [3, 110, None]
-    assert all(trace.showscale is False for trace in fig.data)
+    assert trace.showscale is False
     assert len(fig.layout.annotations) == 9
     fig.to_json()
 
 
 @pytest.mark.parametrize('dark', [False, True])
-def test_huge_tier_does_not_dim_other_column_or_change_labels(dark):
+def test_huge_tier_changes_only_its_own_column_color(dark):
     baseline = render(100, dark=dark, counts=True)
     changed = render(10000, dark=dark, counts=True)
-    assert baseline.data[0].zmax == changed.data[0].zmax == 2
-    assert baseline.data[0].colorscale == changed.data[0].colorscale
-    assert baseline.data[0].hoverlabel.bgcolor == changed.data[0].hoverlabel.bgcolor
-    assert baseline.data[1].zmax == 100
-    assert changed.data[1].zmax == 10000
-    assert [a.text for a in baseline.layout.annotations if a.x == 'No Rework'] == [
-        a.text for a in changed.layout.annotations if a.x == 'No Rework']
+    a, b = baseline.data[0], changed.data[0]
+    assert [row[0] for row in a.z] == [row[0] for row in b.z] == [.5, 1, -1]
+    assert [row[1] for row in a.z] == [1, .1, -1]
+    assert [row[1] for row in b.z] == [1, .001, -1]
+    assert [row[0] for row in a.hoverlabel.bgcolor] == [
+        row[0] for row in b.hoverlabel.bgcolor]
+    assert [annotation.text for annotation in baseline.layout.annotations
+            if annotation.x == 'No Rework'] == [
+        annotation.text for annotation in changed.layout.annotations
+        if annotation.x == 'No Rework']
+    assert a.customdata[0][1][-1] == 100
+    assert b.customdata[0][1][-1] == 10000
     assert baseline.layout.meta['column_totals'][0] == changed.layout.meta['column_totals'][0] == 3
     assert ' / 1' in baseline.layout.annotations[0].text
 
 
-def test_no_total_row_still_uses_per_column_maxima():
+def test_no_total_row_keeps_one_matrix_and_no_neutral_reserved_band():
     fig = render(with_total=False)
-    assert len(fig.data) == 3
+    assert len(fig.data) == 1
+    assert list(fig.data[0].y) == ['A', 'B']
+    assert fig.data[0].zmin == 0 and fig.data[0].zmax == 1
     assert fig.layout.meta['column_totals'] is None
     assert fig.layout.meta['column_maxima'] == [2, 100, 0]
-    assert [trace.zmax for trace in fig.data] == [2, 100, 1]
+    assert [list(row) for row in fig.data[0].z] == [[.5, 1, None], [1, .1, 0]]
