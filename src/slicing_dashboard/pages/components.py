@@ -48,16 +48,16 @@ def chart_graph(**kwargs):
                     dcc.RadioItems(
                         id="rework-completion-state",
                         options=[
-                            {"label": "All views", "value": "All"},
-                            {"label": "Completed in period", "value": "Completed"},
+                            {"label": "All submitted batches", "value": "All"},
+                            {"label": "Completed batches (latest status)", "value": "Completed"},
                             {
                                 "label": "Pending approvals",
                                 "value": "Pending approvals",
                             },
                         ],
-                        value="Completed",
+                        value="All",
                         inline=True,
-                        persistence='period-completion-v1',
+                        persistence='batch-return-tiers-v2',
                         persistence_type="session",
                         className="rework-state-toggle",
                     ),
