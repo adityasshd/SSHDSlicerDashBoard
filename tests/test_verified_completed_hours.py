@@ -114,31 +114,11 @@ def test_rework_callback_switches_between_source_hours_and_original_batch_exposu
     manager.get_batch_rework_ratio_df.assert_not_called()
 
 
-def test_pyramid_callback_requires_exact_completion_packet_and_filter():
+def test_retired_pyramid_callback_cannot_reenter_dashboard_hours():
     namespace, _ = application_namespace()
-    callback = namespace['app'].callback_map['approval-progression-chart.figure']
-    assert {'id': 'dashboard-saved-completion', 'property': 'data'} in callback['inputs']
-    assert {'id': 'dashboard-live-completion', 'property': 'data'} in callback['inputs']
-    assert {'id': 'approval-progression-unit', 'property': 'value'} in callback['inputs']
-    fn = callback['callback'].__wrapped__
-    completed = {'available': True, 'request_id': 'exact',
-                 'captured_at': '2026-11-17T07:00:00Z',
-                 'data': frame_payload(pd.DataFrame([
-                     {'User': 'A', 'Completed Duration': 180000., 'Completed Tasks': 1110},
-                     {'User': 'B', 'Completed Duration': 47009.866, 'Completed Tasks': 600}
-                 ]), 'completion')}
-    request = {'id': 'exact', 'start': '2026-11-01', 'end': '2026-11-17'}
-    data = {'range_start': '2026-11-01', 'range_end': '2026-11-17',
-            'request_id': 'trend', 'approvals': {}}
-    figure = fn(data, None, 0, '/', 'Hours', completed, None, None, request)
-    assert figure.layout.meta['verified_seconds'] == pytest.approx(227009.866)
-    assert figure.data[0].x[0] == pytest.approx(227009.866 / 3600)
-    selected = fn(data, ['B'], 0, '/', 'Hours', completed, None, None, request)
-    assert selected.layout.meta['verified_seconds'] == pytest.approx(47009.866)
-    # Both the requesting date bounds and request ID are required.
-    wrong_id = fn(data, None, 0, '/', 'Hours',
-                  {**completed, 'request_id': 'other'}, None, None, request)
-    assert not wrong_id.data
-    wrong_range = fn(data, None, 0, '/', 'Hours', completed, None, None,
-                     {**request, 'start': '2026-10-01'})
-    assert not wrong_range.data
+    handlers = namespace['app'].callback_map
+    assert 'approval-progression-chart.figure' not in handlers
+    assert 'today-submissions-lollipop-chart.figure' in handlers
+    assert 'kpi-approved-value.children' not in handlers or any(
+        'dashboard-saved-completion' in str(callback.get('inputs'))
+        for key, callback in handlers.items() if 'kpi-approved-value' in key)

@@ -42,6 +42,7 @@ from slicing_dashboard.processing.daily_work import EXCLUDED
 from slicing_dashboard.pages.components import add_reporting_shell, contain_graphs
 from slicing_dashboard.pages.dashboard_panels import panel_stores, register_dashboard_panels
 from slicing_dashboard.pages.dashboard_trend import trend_stores, register_dashboard_trend
+from slicing_dashboard.pages.today_submissions import register_today_submissions
 from slicing_dashboard.pages.status_report import register_status_reports
 from slicing_dashboard.pages.daily_report import build_daily_report_content
 from slicing_dashboard.pages.user_report import build_user_report_content, completion_card, completion_note
@@ -240,6 +241,7 @@ app.layout = html.Div(
                 html.Div(build_kpi_layout({}, {}, True), id="kpi-cards", className="kpi-overview-container mb-2"),
 
                 dcc.Store(id="dashboard-trend-store"),
+                dcc.Store(id="dashboard-today-submissions-evidence"),
                 html.Section([
                     dcc.Graph(id="approval-trend-chart", figure=_initial_fig,
                               config=_graph_cfg, responsive=True, className="report-comparison-chart"),
@@ -250,7 +252,7 @@ app.layout = html.Div(
                 ], className="glass-panel report-section dashboard-lead"),
 
                 dbc.Row([
-                    dbc.Col(dcc.Graph(id='approval-progression-chart', figure=_initial_fig,
+                    dbc.Col(dcc.Graph(id='today-submissions-lollipop-chart', figure=_initial_fig,
                                       config=_graph_cfg, className='glass-panel',
                                       style=_graph_style), width=12, lg=7),
                     dbc.Col(dcc.Graph(id='review-workload-chart', figure=_initial_fig,
@@ -354,6 +356,7 @@ app.layout = add_reporting_shell(app.layout, today_iso(), report_users(
     mapping_records=list(getattr(dm, 'user_mapping_full', {}).values())))
 app.layout = contain_graphs(app.layout)
 register_monthly_returns(app, dm, available_users)
+register_today_submissions(app, dm)
 
 
 @app.callback(

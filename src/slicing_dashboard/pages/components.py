@@ -62,23 +62,6 @@ def chart_graph(**kwargs):
             )
         )
 
-    if graph_id == "approval-progression-chart":
-        controls.append(html.Div([
-            html.Span("Display", className="chart-control-label"),
-            dcc.RadioItems(
-                id="approval-progression-unit",
-                options=[
-                    {"label": "Completed hours (verified)", "value": "Hours"},
-                    {"label": "Batch stages (counts)", "value": "Batches"},
-                ],
-                value="Hours",
-                inline=True,
-                persistence="approval-completion-unit-v3",
-                persistence_type="session",
-                className="rework-state-toggle",
-            ),
-        ], className="rework-state-control"))
-
     if controls:
         children.insert(
             0,
