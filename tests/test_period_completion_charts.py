@@ -27,15 +27,17 @@ COMPLETION = {'available': True, 'rows': [
 @pytest.mark.parametrize('dark', [False, True])
 def test_completed_keeps_tier_columns_without_inventing_period_attribution(dark):
     chart = build_period_rework(inventory(), COMPLETION, 'Completed', dark)
-    assert list(chart.data[0].x)[:4] == ['No<br>Rework', '1<br>Rework', '2<br>Reworks', '3+<br>Reworks']
-    assert all(list(row[:4]) == [None] * 4 for row in chart.data[0].z)
+    assert [trace.x[0] for trace in chart.data[:4]] == [
+        'No<br>Rework', '1<br>Rework', '2<br>Reworks', '3+<br>Reworks']
+    assert all(row[0] is None for trace in chart.data[:4] for row in trace.z)
     assert chart.layout.meta['column_totals'][-1] * 3600 == pytest.approx(227009.87)
     assert 'unavailable' in chart.layout.title.subtitle.text
     # Totals are a separate neutral trace and cannot affect the cell color scale.
-    assert chart.data[0].zmax == pytest.approx(197009.87 / 3600)
-    assert list(chart.data[1].y) == ['<b>Total</b>']
-    assert chart.data[1].colorscale[0][1] == chart.data[1].colorscale[1][1]
-    assert not chart.data[0].showscale and not chart.data[1].showscale
+    assert chart.data[4].zmax == pytest.approx(197009.87 / 3600)
+    assert list(chart.data[-1].y) == ['<b>Total</b>']
+    assert chart.data[-1].colorscale[0][1] == chart.data[-1].colorscale[1][1]
+    assert all(not trace.showscale for trace in chart.data)
+    assert chart.layout.meta['color_scope'] == 'per_column'
     # The retired mixed-unit period view is not used by Dashboard heatmap
     # or pyramid. Exact period output stays in the completion chart.
     assert not build_approval_progression({}, ['2026-11-01', '2026-11-17'],
