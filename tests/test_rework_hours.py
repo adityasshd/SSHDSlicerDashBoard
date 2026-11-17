@@ -42,15 +42,15 @@ def test_tier_hours_survive_capture_and_count_once_across_completion_states():
 def test_kpi_bar_uses_duration_shares_instead_of_batch_or_return_counts():
     content = render_rework_hours(REQUEST, None, packet(), None, 0)
     text = payload_text(content)
-    assert '05:00:00' in text and '01:00:00' in text
-    assert 'Returned batches: 08:00:00' in text
+    assert '15:00:00' in text and '01:00:00' in text
+    assert 'Returned batches: 20:00:00' in text
     bars = [node for node in components(content) if getattr(node, 'role', None) == 'progressbar']
     shares = [node.to_plotly_json()['props']['aria-valuenow'] for node in bars]
-    assert shares == pytest.approx([100 / 9, 300 / 9, 500 / 9], abs=.01)
+    assert shares == pytest.approx([100 / 21, 200 / 21, 300 / 21, 1500 / 21], abs=.01)
 
 
-@pytest.mark.parametrize('selected,expected', [(['A'], ['01:00:00', '03:00:00', '00:00:00']),
-                                               (['B'], ['00:00:00', '05:00:00']), ([], ['00:00:00'])])
+@pytest.mark.parametrize('selected,expected', [(['A'], ['01:00:00', '02:00:00', '03:00:00']),
+                                               (['B'], ['15:00:00']), ([], ['00:00:00'])])
 def test_user_filter_scopes_hours_before_aggregation(selected, expected):
     content = render_rework_hours(REQUEST, None, packet(), selected, 0)
     text = payload_text(content)
@@ -73,9 +73,9 @@ def test_old_capture_without_tier_hours_does_not_allocate_person_total():
 
 def test_failed_refresh_retains_saved_hours_and_reports_saved_status():
     text = payload_text(render_rework_hours(REQUEST, packet(), {'request_id': 'one', 'available': False}, None, 0))
-    assert '05:00:00' in text and 'Latest read failed' in text
+    assert '15:00:00' in text and 'Latest read failed' in text
     text = payload_text(render_rework_hours({'id': 'two'}, packet(), None, None, 0))
-    assert '05:00:00' not in text and 'Loading latest data' in text
+    assert '15:00:00' not in text and 'Loading latest data' in text
 
 
 def test_invalid_capture_does_not_render_misleading_hours():
@@ -108,7 +108,7 @@ def test_metric_updates_with_chart_and_summary_never_replaces_it():
     paint = callback['callback'].__wrapped__
     request = {**REQUEST, 'start': '2026-10-01', 'end': '2026-10-07'}
     _, _, content, _, _ = paint(request, packet(), None, 0, 'All', None, '/', None)
-    assert '05:00:00' in payload_text(content)
+    assert '15:00:00' in payload_text(content)
     assert not any(item['id'] == 'kpi-cards' for item in callback['inputs'])
     assert not any('kpi-cards.children' in key for key in callbacks)
     manager.get_batch_rework_ratio_df.assert_not_called()
