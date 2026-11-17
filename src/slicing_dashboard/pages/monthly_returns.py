@@ -60,7 +60,7 @@ def render_monthly_return_history(manager, selected=None, theme=0, today=None):
     ]
 
 
-def register_monthly_returns(app, manager):
+def register_monthly_returns(app, manager, roster=()):
     @app.callback(
         Output('workflow-monthly-return-chart', 'figure'),
         Output('workflow-monthly-return-summary', 'children'),
@@ -73,8 +73,12 @@ def register_monthly_returns(app, manager):
     def paint_monthly_returns(pathname, users, theme, _refresh):
         if pathname != '/workflow':
             raise dash.exceptions.PreventUpdate
+        # The global default selects the entire roster; treat it as no
+        # user filter so orphan return events remain visible in the audit.
+        selected = (None if users is None or (roster and set(users) >= set(roster))
+                    else users)
         try:
-            return render_monthly_return_history(manager, users, theme)
+            return render_monthly_return_history(manager, selected, theme)
         except (ValueError, TypeError, KeyError):
             dark = (theme or 0) % 2 == 0
             return (state_figure('Saved return history could not be reconciled.', dark, 355),
