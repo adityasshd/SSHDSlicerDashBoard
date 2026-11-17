@@ -34,8 +34,9 @@ def fixture_data():
 
 
 def heatmap_hours(figure):
-    assert len(figure.data) == 2
-    return sum(float(n) for row in figure.data[0].z for n in row if n is not None)
+    assert len(figure.data) == 5  # Four independently scaled tiers + neutral total
+    return sum(float(row[0]) for trace in figure.data[:-1]
+               for row in trace.z if row[0] is not None)
 
 
 def test_rework_batch_event_dedup_and_duration_conservation():
@@ -68,10 +69,14 @@ def test_rework_matrix_matches_source_hours_for_each_state(state, expected_hours
                                    completion_state=state, show_counts=show_counts)
     assert heatmap_hours(fig) == pytest.approx(expected_hours)
     # Colour intensity always measures HOURS even if count annotations are on.
-    assert fig.data[0].showscale is False
+    assert all(trace.showscale is False for trace in fig.data)
+    assert fig.layout.meta['color_scope'] == 'per_column'
     assert sum(fig.layout.meta["column_totals"]) == pytest.approx(expected_hours)
     for column in range(4):
-        assert fig.layout.meta["column_totals"][column] == pytest.approx(sum(row[column] for row in fig.data[0].z))
+        assert fig.layout.meta["column_totals"][column] == pytest.approx(
+            sum(row[0] for row in fig.data[column].z if row[0] is not None))
+        assert fig.data[column].zmax == pytest.approx(
+            max([row[0] for row in fig.data[column].z if row[0] is not None] or [0]) or 1)
     assert fig.layout.meta["show_counts"] is show_counts
     assert "Each batch duration counted once" in fig.layout.title.subtitle.text
     if state == "All":
@@ -97,9 +102,9 @@ def test_rework_toggle_callback_repaints_without_source_reads():
     all_fig, _, _, _, _ = fn(request, packet, None, 0, "All", None, "/", None)
     complete_fig, _, _, _, _ = fn(request, packet, None, 0, "Completed", None, "/", None)
     pending_fig, _, _, _, _ = fn(request, packet, None, 0, "Pending approvals", None, "/", None)
-    assert list(all_fig.data[0].x) == ['No Rework', '1 Rework', '2 Reworks', '3+ Reworks']
-    assert len(all_fig.data[0].z[0]) == 4
-    assert all(value is not None for row in all_fig.data[0].z for value in row)
+    assert [trace.x[0] for trace in all_fig.data[:-1]] == [
+        'No Rework', '1 Rework', '2 Reworks', '3+ Reworks']
+    assert all(value is not None for trace in all_fig.data[:-1] for row in trace.z for value in row)
     assert sum(all_fig.layout.meta['column_totals']) == pytest.approx(12)
     assert heatmap_hours(complete_fig) == pytest.approx(8)
     assert heatmap_hours(pending_fig) == pytest.approx(4)
