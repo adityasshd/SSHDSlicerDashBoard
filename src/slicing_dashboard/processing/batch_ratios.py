@@ -17,7 +17,9 @@ def batch_ratios(batches, returns, start, end, resolve):
         stamp = instant(row.get('returned_at'))
         if not batch or not stamp:
             continue
-        identity = row.get('event_id') or (batch, stamp.isoformat(), row.get('user_id'))
+        # The same return can appear in two operators' histories; the
+        # synthetic event_id includes the viewer and is not an occurrence ID.
+        identity = (batch, stamp.isoformat())
         if stamp.date().isoformat() <= end:
             recorded[batch].add(identity)
         if start <= stamp.date().isoformat() <= end:
