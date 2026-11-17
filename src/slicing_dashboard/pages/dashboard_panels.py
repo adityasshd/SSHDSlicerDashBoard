@@ -105,6 +105,8 @@ def render_rework_hours(request, saved, live, selected, theme, completion_state=
         return build_rework_hours_metric(status='Rework hours unavailable. Refresh to retry.', is_dark=dark)
     note = ('Original batch duration by recorded return tier; not additional rework labor.' +
             (' Some tier hours are unavailable.' if any(value is None for value in hours.values()) else ''))
+    if completion_state in ('Completed', 'Pending approvals'):
+        note += f' Latest saved batch status: {completion_state}.'
     note += ' ' + visible_status(request, saved, live)
     return build_rework_hours_metric(hours, status=note, is_dark=dark)
 
