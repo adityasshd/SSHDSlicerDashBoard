@@ -251,7 +251,7 @@ def _register_panel(app, manager, roster, kind):
     completion_state_stores = ([State('dashboard-saved-completion', 'data'),
                                 State('dashboard-live-completion', 'data')]
                                if kind == 'rework' else [])
-    def render(request, saved, live, selected, theme, completion_state='Verified completed hours',
+    def render(request, saved, live, selected, theme, completion_state='Completed',
                saved_completion=None, live_completion=None):
         if kind == 'summary':
             from slicing_dashboard.plots.kpi_overview import build_secondary_metrics, _percent, _comparison
@@ -322,7 +322,7 @@ def _register_panel(app, manager, roster, kind):
                   State(f'dashboard-live-{kind}', 'data'), State('report-location', 'pathname'),
                   State(f'dashboard-ready-{kind}', 'data'))
     def paint_saved(request, saved, selected, theme, *arguments):
-        completion_state, arguments = ((arguments[0] or 'Verified completed hours'), arguments[1:]) if kind == 'rework' else ('All', arguments)
+        completion_state, arguments = ((arguments[0] or 'Completed'), arguments[1:]) if kind == 'rework' else ('All', arguments)
         saved_completion, live_completion = (arguments[:2] if kind == 'rework' else (None, None))
         if kind == 'rework':
             arguments = arguments[2:]
@@ -350,5 +350,5 @@ def _register_panel(app, manager, roster, kind):
                    completion_state='All', saved_completion=None, live_completion=None):
         if not request or request.get('frozen') or not matching_packet(request, live) or pathname not in (None, '/', '/dashboard'):
             raise dash.exceptions.PreventUpdate
-        return render(request, saved, live, selected, theme, completion_state or 'Verified completed hours',
+        return render(request, saved, live, selected, theme, completion_state or 'Completed',
                       saved_completion, live_completion)
