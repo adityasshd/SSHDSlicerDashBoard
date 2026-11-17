@@ -83,7 +83,7 @@ def render_panel(kind, request, saved, live, selected, theme, roster, show_count
     return figure, status
 
 
-def render_rework_hours(request, saved, live, selected, theme):
+def render_rework_hours(request, saved, live, selected, theme, completion_state='All'):
     """Reuse rework packets so the new KPI never starts another source read."""
     from slicing_dashboard.plots.kpi_overview import build_rework_hours_metric
     from slicing_dashboard.reporting.rework_tiers import rework_hours
@@ -96,6 +96,10 @@ def render_rework_hours(request, saved, live, selected, theme):
         frame = panel_frame(packet)
         if selected is not None and 'User' in frame:
             frame = frame[frame['User'].isin(selected)]
+        if completion_state in ('Completed', 'Pending approvals'):
+            if 'Completion State' not in frame:
+                raise ValueError('Latest batch status unavailable')
+            frame = frame[frame['Completion State'] == completion_state]
         hours = rework_hours(frame)
     except (KeyError, TypeError, ValueError):
         return build_rework_hours_metric(status='Rework hours unavailable. Refresh to retry.', is_dark=dark)
@@ -134,7 +138,7 @@ def period_completion(request, saved, live):
                       'tasks': row.get('Completed Tasks')} for row in frame.to_dict('records')]}
 
 
-def overview_values(kind, request, saved, live, selected, theme):
+def overview_values(kind, request, saved, live, selected, theme, completion_state='All'):
     """Derive an overview section from the exact packet used by its chart.
 
     Sections stay mounted, so an independent summary repaint cannot erase
@@ -145,7 +149,7 @@ def overview_values(kind, request, saved, live, selected, theme):
     from slicing_dashboard.plots.guardrails import checked_frame
     packet, _ = choose_packet(request, saved, live)
     if kind == 'rework':
-        return render_rework_hours(request, saved, live, selected, theme)
+        return render_rework_hours(request, saved, live, selected, theme, completion_state)
     if not packet:
         return '—' if kind == 'completion' else build_workload_metric({}, kind, visible_status(request, saved, live))
     try:
@@ -286,7 +290,8 @@ def _register_panel(app, manager, roster, kind):
         # period completed hours. They must never silently reuse KPI output.
         figure, _ = render_panel(kind, request, saved, live, selected, theme, roster,
                                  completion_state=completion_state)
-        result = (figure, visible_status(request, saved, live), overview_values(kind, request, saved, live, selected, theme))
+        result = (figure, visible_status(request, saved, live),
+                  overview_values(kind, request, saved, live, selected, theme, completion_state))
         if kind == 'pending':
             from slicing_dashboard.plots.overview_charts import build_review_workload_donut
             packet, status = choose_packet(request, saved, live)
