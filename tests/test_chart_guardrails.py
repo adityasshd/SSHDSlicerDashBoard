@@ -14,6 +14,16 @@ from slicing_dashboard.plots.theme import format_seconds
 from slicing_dashboard.processing.batch_ratios import batch_ratios
 
 
+def _heatmap_matrix(figure, attribute='z'):
+    """Reassemble the independent column traces only for test assertions."""
+    columns = figure.data[:-1]  # Last trace is the neutral Total row.
+    if not columns:
+        return []
+    rows = len(columns[0].y)
+    return [[getattr(trace, attribute)[row][0] for trace in columns]
+            for row in range(rows)]
+
+
 @pytest.mark.parametrize('frame', [None, pd.DataFrame(), pd.DataFrame({'User': [None]}),
                                   pd.DataFrame({'User': ['A'], 'Duration': [float('inf')], 'Count': [1], 'Stage': ['Pending Leader']})])
 def test_malformed_chart_is_isolated_and_empty_axes_are_hidden(frame):
@@ -73,13 +83,13 @@ def test_rework_matrix_preserves_raw_counts_and_unknown_durations(dark):
     figure = build_rework_ratio_chart(frame, '2026-10-01', dark)
     trace = figure.data[0]
     assert trace.type == 'heatmap'
-    assert list(trace.z[0]) == [None] * 4
-    for cell, count, weight in zip(trace.customdata[0], [1, 1, 1, 3], [1, 1, 2, 12]):
+    assert _heatmap_matrix(figure)[0] == [None] * 4
+    for cell, count, weight in zip(_heatmap_matrix(figure, 'customdata')[0], [1, 1, 1, 3], [1, 1, 2, 12]):
         assert list(cell[:4]) == pytest.approx([count, 6, count * 100 / 6, weight])
         assert list(cell[4:6]) == [None, None]
         assert cell[6] == 'Unavailable' and cell[7] == 'Unavailable'
     assert 'Duration:' in trace.hovertemplate
-    assert trace.x[-1] == '3+ Reworks'
+    assert figure.data[-2].x[-1] == '3+ Reworks'
     assert figure.layout.hovermode == 'closest'
     assert not figure.layout.updatemenus
     with_counts = build_rework_ratio_chart(frame, '2026-10-01', dark, show_counts=True)
@@ -99,8 +109,8 @@ def test_grouped_reworks_use_exact_unique_return_counts_above_three():
     assert frame.iloc[0]['3+ Reworks'] == 2
     assert frame.iloc[0]['3+ Return Count'] == 12
     figure = build_rework_ratio_chart(frame, '2026-10-01', True)
-    assert list(figure.data[0].z[0]) == [0, 0, 0, 0]
-    assert list(figure.data[0].customdata[0][-1][:6]) == pytest.approx([2, 3, 200 / 3, 12, 0, 0])
+    assert _heatmap_matrix(figure)[0] == [0, 0, 0, 0]
+    assert list(_heatmap_matrix(figure, 'customdata')[0][-1][:6]) == pytest.approx([2, 3, 200 / 3, 12, 0, 0])
 
 
 def test_rework_tooltip_ids_are_scoped_to_the_hovered_tier():
@@ -112,7 +122,7 @@ def test_rework_tooltip_ids_are_scoped_to_the_hovered_tier():
               for batch, count in [('one', 1), ('another', 1), ('two', 2)] for index in range(count)]
     frame = batch_ratios(batches, events, '2026-10-01', '2026-10-07', lambda batch: 'Person')
     figure = build_rework_ratio_chart(frame, '2026-10-01', True)
-    cells = figure.data[0].customdata[0]
+    cells = _heatmap_matrix(figure, 'customdata')[0]
     assert [cell[7] for cell in cells[:3]] == ['A-clean', 'A-return', 'B-return']
     assert [cell[6] for cell in cells] == ['01:00:00', '02:00:00', '01:00:00', '00:00:00']
     assert 'IDs: %{customdata[7]}' in figure.data[0].hovertemplate
@@ -127,10 +137,10 @@ def test_weighted_rework_keeps_clean_users_and_legacy_tiers_with_filtering():
                            'Reworked Once': 0, 'Reworked Twice+': 0}])
     figure = build_rework_ratio_chart(frame, '', True)
     assert list(figure.data[0].y) == ['Clean', 'Returned']
-    assert list(figure.data[0].z[0]) == [None, 0, 0, 0]
+    assert _heatmap_matrix(figure)[0] == [None, 0, 0, 0]
     filtered = build_rework_ratio_chart(frame, '', True, ['Returned'], True)
     assert list(filtered.data[0].y) == ['Returned']
-    assert list(filtered.data[0].z[0]) == [None, 0, None, 0]
+    assert _heatmap_matrix(filtered)[0] == [None, 0, None, 0]
 
 
 def test_three_plus_durations_and_accounts_survive_saved_panel_roundtrip():
@@ -145,14 +155,14 @@ def test_three_plus_durations_and_accounts_survive_saved_panel_roundtrip():
     restored = panel_frame({'data': frame_payload(frame, 'rework')})
     figure = build_rework_ratio_chart(restored, '', True)
     trace = figure.data[0]
-    assert list(trace.x) == ['No Rework', '1 Rework', '2 Reworks', '3+ Reworks']
-    assert list(trace.z[0]) == [1, 2, 3, 15]
-    assert [cell[0] for cell in trace.customdata[0]] == [1, 1, 1, 3]
-    cell = trace.customdata[0][-1]
+    assert [col.x[0] for col in figure.data[:-1]] == ['No Rework', '1 Rework', '2 Reworks', '3+ Reworks']
+    assert _heatmap_matrix(figure)[0] == [1, 2, 3, 15]
+    assert [cell[0] for cell in _heatmap_matrix(figure, 'customdata')[0]] == [1, 1, 1, 3]
+    cell = _heatmap_matrix(figure, 'customdata')[0][-1]
     assert cell[3] == 14 and cell[6] == '15:00:00'
     assert cell[7] == 'account-3, account-4, account-5'
     assert cell[10] == 'Completed: 10:00:00 · 2 batches<br>Pending approvals: 05:00:00 · 1 batch'
-    assert sum(trace.z[0]) == 21
+    assert sum(_heatmap_matrix(figure)[0]) == 21
 
 
 def test_legacy_three_plus_merges_scoped_durations_without_using_person_total():
@@ -162,7 +172,7 @@ def test_legacy_three_plus_merges_scoped_durations_without_using_person_total():
             'No Rework': 2, '3 Reworks': 4, '4 Reworks': 6, '5+ Reworks': 8},
         'Tier IDs': {'No Rework': 'clean', '3 Reworks': 'three', '4 Reworks': 'four', '5+ Reworks': 'eight'}}])
     figure = build_rework_ratio_chart(frame, '', False)
-    cells = figure.data[0].customdata[0]
+    cells = _heatmap_matrix(figure, 'customdata')[0]
     assert cells[0][6] == '02:00:00'
     assert cells[-1][6] == '18:00:00'
     assert cells[-1][3] == 15
@@ -187,8 +197,8 @@ def test_visible_stack_totals_are_outside_and_axis_has_ten_percent_headroom(dark
     frame = pd.DataFrame({'User': ['A', 'A', 'B'], 'Stage': ['Pending Leader', 'Pending Admin', 'Pending Leader'],
                           'Duration': [3600, 7200, 1800], 'Count': [1, 2, 1]})
     pending = build_pending_chart(frame, dark)
-    assert [list(row) for row in pending.data[0].z] == [[1, 0, 2], [.5, 0, 0]]
-    assert pending.data[0].zmax == 2
+    assert _heatmap_matrix(pending) == [[1, 0, 2], [.5, 0, 0]]
+    assert [trace.zmax for trace in pending.data[:-1]] == [1, 1, 2]
     assert pending.layout.yaxis.autorange == 'reversed'
     assigned = build_assigned_chart(frame.assign(Stage=['New Assigned', 'Rework Assigned', 'New Assigned']), dark)
     labels = {item.y: item for item in assigned.layout.annotations if item.name == 'bar-hour-total'}
@@ -253,16 +263,16 @@ def test_pending_matrix_combines_hours_and_counts_without_changing_the_scale(dar
     figure = build_pending_chart(frame, dark)
     trace = figure.data[0]
     assert list(trace.y) == ['A', 'B']
-    assert [list(row) for row in trace.z] == [[1.5, 0, 0], [0, 0, 0]]
+    assert _heatmap_matrix(figure) == [[1.5, 0, 0], [0, 0, 0]]
     assert list(trace.customdata[0][0][2:]) == ['01:30:00', 3, 'first, second']
-    assert trace.customdata[1][2][3] == 4
+    assert figure.data[2].customdata[1][0][3] == 4
     assert figure.layout.meta['captured_at'] == frame.attrs['captured_at']
     assert not figure.layout.updatemenus
     combined = build_pending_chart(frame, dark, show_counts=True)
-    assert [list(row) for row in combined.data[0].z] == [list(row) for row in trace.z]
-    assert combined.data[0].zmax == trace.zmax
+    assert _heatmap_matrix(combined) == _heatmap_matrix(figure)
+    assert [col.zmax for col in combined.data[:-1]] == [col.zmax for col in figure.data[:-1]]
     assert [item.text for item in combined.layout.annotations] == ['01:30 / 3', '00:00 / 0', '00:00 / 0', '00:00 / 0', '00:00 / 0', '00:00 / 4', '01:30 / 3', '00:00 / 0', '00:00 / 4']
-    assert trace.hoverlabel.bgcolor[0][0] != trace.hoverlabel.bgcolor[0][1]
+    assert trace.hoverlabel.bgcolor[0][0] != figure.data[1].hoverlabel.bgcolor[0][0]
     pd.testing.assert_frame_equal(frame, original)
 
 

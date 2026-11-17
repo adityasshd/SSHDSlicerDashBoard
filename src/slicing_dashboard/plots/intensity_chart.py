@@ -17,14 +17,23 @@ def intensity_chart(users, categories, metrics, customdata, hovertemplate, title
     counts = next(matrix[0] for label, matrix in metrics.items() if label != 'Hours')
     has_total = bool(users and users[-1] == '<b>Total</b>')
     colored_values = values[:-1] if has_total else values
-    maximum = max((value for row in colored_values for value in row if value is not None), default=0) or 1
+    # Each column measures its own relative intensity. A large value in one
+    # return tier must not flatten the colors in a different tier. Preserve
+    # actual hour values in each trace (do not replace z with normalized data).
+    column_maxima = [
+        max((float(row[index]) for row in colored_values
+             if row[index] is not None), default=0.0)
+        for index in range(len(categories))
+    ]
+    color_limits = [peak if peak > 0 else 1.0 for peak in column_maxima]
     neutral = '#17251f' if is_dark else '#eef1ef'
     annotations, hover_colors, hover_text_colors = [], [], []
     for user, row, texts, count_row in zip(users, values, labels, counts):
         row_colors, row_text_colors = [], []
-        for category, value, text, count in zip(categories, row, texts, count_row):
+        for index, (category, value, text, count) in enumerate(zip(categories, row, texts, count_row)):
             color = (neutral if has_total and user == users[-1] else
-                     sample_colorscale(scale, [value / maximum])[0] if value is not None else None)
+                     sample_colorscale(scale, [value / color_limits[index]])[0]
+                     if value is not None else None)
             row_colors.append(color or ('#10261e' if is_dark else '#ffffff'))
             row_text_colors.append(tooltip_text_color(row_colors[-1]))
             if show_counts:
@@ -35,16 +44,29 @@ def intensity_chart(users, categories, metrics, customdata, hovertemplate, title
             ))
         hover_colors.append(row_colors)
         hover_text_colors.append(row_text_colors)
-    figure = go.Figure(go.Heatmap(
-        x=categories, y=users[:-1] if has_total else users, z=colored_values,
-        customdata=customdata[:-1] if has_total else customdata,
-        zmin=0, zmax=maximum, colorscale=scale, xgap=4, ygap=4,
-        showscale=False,
-        hovertemplate=hovertemplate, hoverongaps=True,
-        hoverlabel={'bgcolor': hover_colors[:-1] if has_total else hover_colors,
-                    'bordercolor': hover_colors[:-1] if has_total else hover_colors,
-                    'font': {'size': 12, 'color': hover_text_colors[:-1] if has_total else hover_text_colors}},
-    ))
+    # Plotly permits only one z-range for each Heatmap trace. Render one
+    # trace per category, each at its own zmax, so z stays in real hours and
+    # hover details / count annotations remain unchanged. A separate neutral
+    # Total trace below is deliberately not part of any column scale.
+    figure = go.Figure()
+    detail_users = users[:-1] if has_total else users
+    detail_custom = customdata[:-1] if has_total else customdata
+    detail_colors = hover_colors[:-1] if has_total else hover_colors
+    detail_text_colors = hover_text_colors[:-1] if has_total else hover_text_colors
+    for index, category in enumerate(categories):
+        colors = [[row[index]] for row in detail_colors]
+        text_colors = [[row[index]] for row in detail_text_colors]
+        figure.add_trace(go.Heatmap(
+            x=[category], y=detail_users,
+            z=[[row[index]] for row in colored_values],
+            customdata=[[row[index]] for row in detail_custom],
+            zmin=0, zmax=color_limits[index], colorscale=scale,
+            xgap=4, ygap=4, showscale=False,
+            hovertemplate=hovertemplate, hoverongaps=True,
+            hoverlabel={'bgcolor': colors, 'bordercolor': colors,
+                        'font': {'size': 12, 'color': text_colors}},
+            name=category,
+        ))
     if has_total:
         figure.add_trace(go.Heatmap(
             x=categories, y=users[-1:], z=values[-1:], customdata=customdata[-1:],
@@ -55,7 +77,9 @@ def intensity_chart(users, categories, metrics, customdata, hovertemplate, title
             name='Total',
         ))
     figure.update_layout(
-        title={'text': title, 'subtitle': {'text': subtitle or '', 'font': {'size': 10}}},
+        title={'text': title, 'subtitle': {
+            'text': ((subtitle + ' · ') if subtitle else '') + 'Color intensity relative within each column',
+            'font': {'size': 10}}},
         template=theme['template'], paper_bgcolor=theme['bg_color'], plot_bgcolor=theme['bg_color'],
         font={'family': 'Inter, sans-serif', 'size': 12, 'color': theme['font_color']},
         height=max(340, len(users) * 30 + 150),
@@ -65,6 +89,8 @@ def intensity_chart(users, categories, metrics, customdata, hovertemplate, title
                'categoryorder': 'array', 'categoryarray': users},
         annotations=annotations, showlegend=False, hovermode='closest',
         meta={'intensity_matrix': True, 'show_counts': bool(show_counts),
+              'color_scope': 'per_column',
+              'column_maxima': column_maxima,
               'column_totals': values[-1] if has_total else None},
     )
     return figure
