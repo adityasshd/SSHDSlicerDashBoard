@@ -149,7 +149,7 @@ class DailyReportRoutingTests(unittest.TestCase):
     def test_dashboard_summary_render_does_not_wait_for_live_captures(self):
         namespace, _ = application_namespace()
         callback = next(value for key, value in namespace["app"].callback_map.items()
-                        if "kpi-secondary.children" in key)
+                        if "kpi-cards.children" in key)
         self.assertNotIn('dashboard-live-summary', {item['id'] for item in callback['inputs']})
         with self.assertRaises(dash.exceptions.PreventUpdate):
             callback['callback'].__wrapped__(None, None, ['Riya'], 0, None, '/reports/daily', None)

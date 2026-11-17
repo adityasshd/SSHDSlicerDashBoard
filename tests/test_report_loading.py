@@ -85,7 +85,7 @@ def test_immediate_legend_render_is_pure_and_route_scoped():
         namespace['render_dashboard_legend'](['Riya'], 0, '/reports/daily')
     manager.fetch_dashboard_data.assert_not_called()
     callback = next(value for key, value in namespace['app'].callback_map.items()
-                    if 'kpi-secondary.children' in key)
+                    if 'kpi-cards.children' in key)
     outputs = {output.component_id for output in callback['output']}
     assert 'universal-legend' not in outputs and 'dashboard-trend-store' not in outputs
 

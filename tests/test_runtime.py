@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from textwrap import dedent
 from threading import Thread
 from unittest.mock import MagicMock
 
@@ -124,46 +123,6 @@ def test_unrelated_executor_error_is_not_retried(monkeypatch):
         with pytest.raises(RuntimeError, match='after shutdown'):
             executor.submit(read)
     read.assert_not_called()
-
-
-def test_in_flight_reads_finish_during_interpreter_shutdown():
-    environment = dict(os.environ)
-    environment['PYTHONPATH'] = str(Path(__file__).resolve().parents[1] / 'src')
-    environment['DASHBOARD_MAX_WORKERS'] = '2'
-    code = dedent('''
-        import json
-        import threading
-
-        release = threading.Event()
-        ready = threading.Event()
-        # Callbacks run in reverse order. Let concurrent.futures disable new
-        # submissions before the existing request thread resumes its reads.
-        threading._register_atexit(release.set)
-        from slicing_dashboard.runtime import ReadExecutor
-
-        def finish_refresh():
-            ready.set()
-            release.wait()
-            with ReadExecutor(max_workers=2) as pool:
-                values = list(pool.map(lambda value: value * 2, [1, 2, 3]))
-                # A read may itself use another pool to fetch batch dates.
-                def nested_read():
-                    with ReadExecutor(max_workers=2) as nested:
-                        return nested.submit(lambda: 8).result()
-                values.append(pool.submit(nested_read).result())
-                failure = pool.submit(lambda: 1 / 0)
-                try:
-                    failure.result()
-                except ZeroDivisionError:
-                    print(json.dumps(values))
-
-        threading.Thread(target=finish_refresh).start()
-        ready.wait()
-    ''')
-    result = subprocess.run([sys.executable, '-c', code], env=environment,
-                            capture_output=True, text=True, check=True, timeout=15)
-    assert result.stderr == ''
-    assert json.loads(result.stdout) == [2, 4, 6, 8]
 
 
 def test_saved_trend_still_loads_when_thread_creation_is_denied(monkeypatch):

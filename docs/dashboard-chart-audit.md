@@ -116,19 +116,3 @@ node scripts/dashboard_browser_audit.mjs controls http://127.0.0.1:8059
 The fixture port can be changed with `DASHBOARD_QA_PORT`. Screenshots and JSON reports are saved under `data/reports/chart-qa/`. These checks use synthetic data and do not deploy or contact production data sources.
 
 The normal/35-user matrix also passed all 24 route/viewport combinations across Dashboard, Daily Report and User Report, with no runtime/network errors or overflowing chart containers. Reports: `audit-normal-many.json`, `audit-responsive.json`, `audit-rework.json` and `audit-controls.json` in the QA directory.
-
-## Lollipops and workload heatmaps — 16 November 2026
-
-Completed video duration uses a colored stem and selectable endpoint per user, with the same exact duration, descending order and click-to-filter behavior. Native and bounded tooltips use the hovered bar, segment, point or heatmap cell color, with contrasting text.
-
-Pending review intensity is a user-by-stage matrix. Its checkbox adds task counts to the existing duration labels as `HH:MM / count`. It aggregates the existing current queue durations, counts and contributing account IDs. Missing stage rows within a successful queue capture are zero; failed captures retain the unavailable state.
-
-Rework intensity is a user-by-tier matrix. Its checkbox adds batch counts as `HH:MM / count`, retaining the hour-based intensity scale. It uses `prepare_rework_stacks()` and counts each batch duration once, combining completion states in each cell. Hovers retain exact completed/pending approval durations, batch counts and tier-specific IDs. Legacy tiers still fold into 3+ Reworks. Missing duration evidence displays an em dash and remains unavailable in the hover, while batch counts remain accessible. Assigned work has the same checkbox for hour/task totals, retaining account-specific hover evidence and task counts.
-
-Completed output shares a row with the team filter. The two heatmaps share their own equal-width desktop row, with synchronized heights even when their rosters differ. They stack independently on mobile. Removing the Plotly button rows and using fixed colorbar spacing reduces unused vertical space. Counts persist through source refreshes and theme changes without starting another source read.
-
-The KPI distribution is labeled **Batch hours by rework tier**, with durations in HH:MM:SS. Its separate **Reworked** total sums the 1/2/3+ tiers; No Rework remains a separate baseline. Tier durations must reconcile with each batch-duration total when that evidence exists. Standalone reporting imports no longer depend on the chart package's import order.
-
-An independent read-only audit for 1–16 November compared the saved batch ledger with 325 live batch records: all durations matched. The 273 eligible submitted batches total 200:14:16. Their tier totals are No Rework **122:46:51** (171 batches), 1 Rework **17:58:37** (22), 2 Reworks **36:28:55** (52), and 3+ Reworks **22:59:53** (28). Returned batches therefore total **77:27:25** across 102 batches. These are base video durations counted once per batch. The previous sums matched the batch records; the label and decimal-hour display obscured their scope. Local evidence is in `data/reports/rework-hours-audit/audit.json`.
-
-Validation: 585 tests and 26 subtests passed, plus four chart JavaScript tests. `node scripts/dashboard_browser_audit.mjs intensity` checks actual pointer hovers, tooltip colors/bounds, all three checkboxes, unchanged chart values and source-read counts, light/dark rendering at 390/1366px, lollipop selection, and populated unequal 12-user/8-user matrices. The preview starts with an unrestricted user selection so roster stress cases contain their actual data. Browser checks report no runtime/network errors or overflow. Reports and screenshots are saved under `data/reports/chart-qa/`.

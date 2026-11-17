@@ -1,59 +1,108 @@
-"""Current pending review intensity by user and stage."""
-from html import escape
+"""
+Pending reviews stacked bar chart builder.
+"""
 
-from slicing_dashboard.plots.guardrails import safe_chart, checked_frame, state_figure
-from slicing_dashboard.plots.intensity_chart import intensity_chart
-from slicing_dashboard.plots.theme import format_seconds
+import plotly.express as px
+import plotly.graph_objects as go
+from slicing_dashboard.plots.guardrails import safe_chart, checked_frame, state_figure, add_bar_total_labels
 
-STAGES = ['Pending Leader', 'Pending Auditor', 'Pending Admin']
+from slicing_dashboard.plots.theme import (
+    CHART_HEIGHT,
+    format_seconds,
+    theme_ctx,
+)
 
 
 @safe_chart
-def build_pending_chart(pending_df, is_dark: bool, show_counts=False):
-    """Show duration with optional task counts from the same queue capture."""
+def build_pending_chart(pending_df, is_dark: bool) -> go.Figure:
+    """Build stacked bar chart of pending reviews by stage.
+
+    Parameters
+    ----------
+    pending_df : DataFrame filtered to pending stages, with columns
+                 'User', 'Stage', 'Duration', 'Count', and optionally 'IDs'.
+    is_dark : bool
+    """
+    t = theme_ctx(is_dark)
     if pending_df is not None and pending_df.attrs.get('pending_error'):
         return state_figure('Pending review unavailable. Refresh to retry.', is_dark)
-    frame = checked_frame(pending_df, ['User', 'Stage', 'Duration', 'Count'], ['Duration', 'Count'])
-    if frame.empty:
+    pending_df = checked_frame(pending_df, ['User', 'Stage', 'Duration', 'Count'], ['Duration', 'Count'])
+    if not pending_df.empty:
+        pending_df = pending_df[(pending_df['Duration'] > 0) | (pending_df['Count'] > 0)]
+
+    if pending_df.empty:
         return state_figure('No pending reviews queued.', is_dark)
-    if not frame.Stage.isin(STAGES).all() or (frame.Count % 1 != 0).any():
-        raise ValueError('Invalid pending review stages or task counts')
-    frame = frame[(frame.Duration > 0) | (frame.Count > 0)]
-    if frame.empty:
-        return state_figure('No pending reviews queued.', is_dark)
-    users = list(frame.groupby('User').Duration.sum().sort_values(ascending=False, kind='stable').index)
-    cells = {}
-    for (user, stage), rows in frame.groupby(['User', 'Stage']):
-        ids = sorted({item.strip() for raw in rows.get('IDs', []) for item in str(raw or '').split(',') if item.strip()})
-        cells[user, stage] = (rows.Duration.sum(), int(rows.Count.sum()), ', '.join(ids) or 'Unavailable')
-    total_label = '<b>Total</b>'
-    for stage in STAGES:
-        stage_cells = [cell for (user, cell_stage), cell in cells.items() if cell_stage == stage]
-        ids = sorted({account.strip() for cell in stage_cells for account in cell[2].split(',')
-                      if account.strip() and account.strip() != 'Unavailable'})
-        cells[total_label, stage] = (sum(cell[0] for cell in stage_cells),
-                                    sum(cell[1] for cell in stage_cells), ', '.join(ids) or 'None')
-    users.append(total_label)
-    hours, counts, labels, custom = [], [], [], []
-    for user in users:
-        row_hours, row_counts, row_labels, row_custom = [], [], [], []
-        for stage in STAGES:
-            seconds, count, ids = cells.get((user, stage), (0, 0, 'None'))
-            row_hours.append(seconds / 3600)
-            row_counts.append(count)
-            row_labels.append(format_seconds(seconds, compact=True))
-            row_custom.append([escape('Total' if user == total_label else user), stage, format_seconds(seconds), count, escape(ids)])
-        hours.append(row_hours)
-        counts.append(row_counts)
-        labels.append(row_labels)
-        custom.append(row_custom)
-    figure = intensity_chart(
-        users, ['Leader', 'Auditor', 'Admin'],
-        {'Hours': (hours, labels), 'Tasks': (counts, [[str(value) for value in row] for row in counts])},
-        custom, '<b>%{customdata[0]}</b><br>%{customdata[1]}<br>%{customdata[2]}<br>'
-                '%{customdata[3]} tasks<br>IDs: %{customdata[4]}<extra></extra>',
-        'Pending review intensity', is_dark, 'Current queue · user by review stage',
-        show_counts=show_counts,
+
+    df = pending_df.copy()
+    df["Formatted Duration"] = df["Duration"].apply(format_seconds)
+    if "Count" not in df.columns:
+        df["Count"] = 0
+    if "IDs" not in df.columns:
+        df["IDs"] = ""
+
+    max_hours = (df.groupby("User")["Duration"].sum() / 3600).max() if not df.empty else 0
+    max_range = max_hours * 1.15 if (max_hours and max_hours > 0) else 1
+
+    fig = px.bar(
+        df,
+        x="User",
+        y=df["Duration"] / 3600,
+        color="Stage",
+        title="Pending reviews · current queue",
+        color_discrete_map={
+            "Pending Leader": "#F59E0B",
+            "Pending Auditor": "#8B5CF6",
+            "Pending Admin": "#06B6D4",
+        },
+        text="Formatted Duration",
+        barmode="stack",
+        custom_data=["Formatted Duration", "Stage", "Count", "IDs"],
     )
-    figure.update_layout(meta={**figure.layout.meta, 'captured_at': pending_df.attrs.get('captured_at')})
-    return figure
+    fig.update_layout(
+        template=t["template"],
+        plot_bgcolor=t["bg_color"],
+        paper_bgcolor=t["bg_color"],
+        font=dict(family="Inter, sans-serif", size=12, color=t["font_color"]),
+        title_font=dict(size=15, weight="bold"),
+        height=CHART_HEIGHT,
+        margin=dict(l=40, r=15, t=45, b=55),
+        bargap=0.35,
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.18,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=11),
+        ),
+        hoverlabel=dict(
+            bgcolor=t["hover_bg"],
+            font_color=t["hover_fg"],
+            font_size=13,
+        ),
+        yaxis_title="Hours",
+        yaxis=dict(
+            range=[0, max_range],
+            automargin=True,
+            showgrid=True,
+            gridcolor="rgba(128,128,128,0.2)",
+            zeroline=False,
+            tickfont=dict(size=11),
+        ),
+        xaxis_title="",
+        xaxis=dict(automargin=True, tickfont=dict(size=12, weight="bold")),
+    )
+    fig.update_traces(
+        textposition="none",
+        textfont=dict(size=10, weight="bold"),
+        constraintext="none",
+        hovertemplate=(
+            "<b>%{x}</b><br>"
+            "%{customdata[1]}<br>"
+            "%{customdata[0]}<br>"
+            "IDs: %{customdata[3]}<extra></extra>"
+        ),
+    )
+    fig.update_layout(meta={'captured_at': pending_df.attrs.get('captured_at')})
+    return add_bar_total_labels(fig)

@@ -113,10 +113,9 @@ def test_completion_is_separate_from_work_and_ignores_wrong_period():
     assert prepare_user_report(payload, 'A')['completed_period']['seconds'] is None
 
 
-@pytest.mark.parametrize('reload_code', [True, False])
-def test_local_runner_enables_reload_by_default_and_allows_opting_out(reload_code):
+@pytest.mark.parametrize('platform,reload_code', [('win32', False), ('linux', True)])
+def test_local_runner_avoids_windows_reloader_socket_path(platform, reload_code):
     namespace, _ = application_namespace()
-    with patch.object(namespace['app'], 'run') as run:
-        namespace['run_local'](port=8057, **({} if reload_code else {'reload': False}))
-    run.assert_called_once_with(debug=True, dev_tools_ui=False, port=8057, use_reloader=reload_code,
-                               reloader_type='stat', dev_tools_hot_reload=reload_code)
+    with patch.object(namespace['sys'], 'platform', platform), patch.object(namespace['app'], 'run') as run:
+        namespace['run_local'](port=8057)
+    run.assert_called_once_with(debug=True, dev_tools_ui=False, port=8057, use_reloader=reload_code, dev_tools_hot_reload=reload_code)
