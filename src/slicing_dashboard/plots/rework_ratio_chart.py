@@ -193,7 +193,10 @@ def build_rework_ratio_chart(
         note += " · Completed + Pending approvals"
     else:
         note += " · completion status unavailable"
-    note += '<br>Batch / return-date cohort · whole batches, not task completion hours'
+    note += ('<br>Latest saved batch status; return tiers use observed events'
+             ' through the selected end date.'
+             '<br>Original video duration, not verified completed-task hours'
+             ' or additional rework labor.')
 
     return intensity_chart(
         users,
