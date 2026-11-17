@@ -9,7 +9,7 @@ from html import escape
 import pandas as pd
 import plotly.graph_objects as go
 
-from slicing_dashboard.plots.theme import CHART_HEIGHT, theme_ctx, format_seconds, duration_ticks, tooltip_text_color
+from slicing_dashboard.plots.theme import CHART_HEIGHT, theme_ctx, format_seconds, duration_ticks
 
 log = logging.getLogger(__name__)
 
@@ -51,31 +51,24 @@ def pad_hour_axis(figure, orientation='v'):
     return figure
 
 
-def add_bar_total_labels(figure, orientation='v', count_index=None):
+def add_bar_total_labels(figure, orientation='v'):
     """Label each visible stack once, excluding independent marker/line series."""
-    totals, counts = {}, {}
+    totals = {}
     for trace in figure.data:
         if trace.type != 'bar' or trace.visible is False or trace.visible == 'legendonly':
             continue
         categories = trace.y if orientation == 'h' else trace.x
         values = trace.x if orientation == 'h' else trace.y
-        for index, (category, value) in enumerate(zip(categories, values)):
+        for category, value in zip(categories, values):
             number = finite_number(value)
             previous = totals.get(category, 0.)
             totals[category] = previous + number if previous is not None and number is not None else None
-            if count_index is not None:
-                count = finite_number(trace.customdata[index][count_index])
-                previous_count = counts.get(category, 0.)
-                counts[category] = previous_count + count if previous_count is not None and count is not None else None
     if not totals:
         return figure
     for category, total in totals.items():
         if total is None:
             continue
-        label = hour_total_label(total)
-        if count_index is not None:
-            label += f' / {int(counts[category]) if counts[category] is not None else "—"}'
-        figure.add_annotation(name='bar-hour-total', text=label,
+        figure.add_annotation(name='bar-hour-total', text=hour_total_label(total),
             x=total if orientation == 'h' else category,
             y=category if orientation == 'h' else total,
             xref='x', yref='y', showarrow=False,
@@ -84,10 +77,8 @@ def add_bar_total_labels(figure, orientation='v', count_index=None):
             xshift=6 if orientation == 'h' else 0, yshift=0 if orientation == 'h' else 6,
             font={'size': 11, 'color': figure.layout.font.color})
     if orientation == 'h':
-        figure.update_layout(margin={'r': max(95 if count_index is not None else 60, figure.layout.margin.r or 0)})
+        figure.update_layout(margin={'r': max(60, figure.layout.margin.r or 0)})
     figure.update_layout(meta={**(figure.layout.meta or {}), 'bar_total_labels': orientation})
-    if count_index is not None:
-        figure.update_layout(meta={**figure.layout.meta, 'bar_count_index': count_index})
     return pad_hour_axis(figure, orientation)
 
 
@@ -169,16 +160,6 @@ def finish_chart(figure, is_dark=None):
         figure.update_layout(bargap=max(.42, figure.layout.bargap or 0), bargroupgap=.18,
                              barcornerradius=7)
     for trace in figure.data:
-        # Match native tooltips to their segment; the bounded overlay uses these colors too.
-        if trace.type in ('bar', 'scatter', 'pie', 'funnel'):
-            marker = trace.marker
-            colors = marker.colors if trace.type == 'pie' else marker.color
-            if isinstance(colors, str):
-                trace.update(hoverlabel={'bgcolor': colors, 'bordercolor': colors,
-                                        'font_color': tooltip_text_color(colors)})
-            elif colors is not None and all(isinstance(color, str) for color in colors):
-                trace.update(hoverlabel={'bgcolor': list(colors), 'bordercolor': list(colors),
-                                        'font_color': [tooltip_text_color(color) for color in colors]})
         if trace.type == 'scatter' and 'lines' in (trace.mode or ''):
             trace.update(line={'shape': 'spline', 'smoothing': .65})
     figure.update_xaxes(automargin=True, zeroline=False, tickfont={'size': 12})

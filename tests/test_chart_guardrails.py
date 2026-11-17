@@ -14,16 +14,6 @@ from slicing_dashboard.plots.theme import format_seconds
 from slicing_dashboard.processing.batch_ratios import batch_ratios
 
 
-def _heatmap_matrix(figure, attribute='z'):
-    """Reassemble the independent column traces only for test assertions."""
-    columns = figure.data[:-1]  # Last trace is the neutral Total row.
-    if not columns:
-        return []
-    rows = len(columns[0].y)
-    return [[getattr(trace, attribute)[row][0] for trace in columns]
-            for row in range(rows)]
-
-
 @pytest.mark.parametrize('frame', [None, pd.DataFrame(), pd.DataFrame({'User': [None]}),
                                   pd.DataFrame({'User': ['A'], 'Duration': [float('inf')], 'Count': [1], 'Stage': ['Pending Leader']})])
 def test_malformed_chart_is_isolated_and_empty_axes_are_hidden(frame):
@@ -75,25 +65,25 @@ def test_batch_distribution_counts_entities_and_unique_returns_only():
 
 
 @pytest.mark.parametrize('dark', [True, False])
-def test_rework_matrix_preserves_raw_counts_and_unknown_durations(dark):
+def test_rework_shares_weight_each_tier_and_preserve_raw_counts(dark):
     frame = pd.DataFrame([{'User': 'A', 'Total Batches': 6, 'No Rework': 1,
                            '1 Rework': 1, '2 Reworks': 1, '3 Reworks': 1,
                            '4 Reworks': 1, '5+ Reworks': 1, 'Total Duration (hrs)': 12}])
     original = frame.copy(deep=True)
     figure = build_rework_ratio_chart(frame, '2026-10-01', dark)
-    trace = figure.data[0]
-    assert trace.type == 'heatmap'
-    assert _heatmap_matrix(figure)[0] == [None] * 4
-    for cell, count, weight in zip(_heatmap_matrix(figure, 'customdata')[0], [1, 1, 1, 3], [1, 1, 2, 12]):
-        assert list(cell[:4]) == pytest.approx([count, 6, count * 100 / 6, weight])
-        assert list(cell[4:6]) == [None, None]
-        assert cell[6] == 'Unavailable' and cell[7] == 'Unavailable'
-    assert 'Duration:' in trace.hovertemplate
-    assert figure.data[-2].x[-1] == '3+ Reworks'
+    assert [trace.y[0] for trace in figure.data] == pytest.approx(
+        [6.25, 6.25, 12.5, 75])
+    assert sum(trace.y[0] for trace in figure.data) == pytest.approx(100)
+    for trace, count, weight in zip(figure.data, [1, 1, 1, 3], [1, 1, 2, 12]):
+        assert list(trace.customdata[0][:4]) == pytest.approx([count, 6, count * 100 / 6, weight])
+        assert list(trace.customdata[0][4:6]) == [None, None]
+        assert trace.customdata[0][6] == 'Unavailable'
+        assert trace.customdata[0][-1] == 'Unavailable'
+        assert 'Duration:' in trace.hovertemplate
+        assert 'Weighted share:' not in trace.hovertemplate
+    assert figure.data[-1].name == '3+ Reworks'
     assert figure.layout.hovermode == 'closest'
-    assert not figure.layout.updatemenus
-    with_counts = build_rework_ratio_chart(frame, '2026-10-01', dark, show_counts=True)
-    assert [item.text for item in with_counts.layout.annotations][:4] == ['— / 1', '— / 1', '— / 1', '— / 3']
+    assert figure.layout.yaxis.title.text == '% of Weighted Total'
     pd.testing.assert_frame_equal(frame, original)
 
 
@@ -109,8 +99,9 @@ def test_grouped_reworks_use_exact_unique_return_counts_above_three():
     assert frame.iloc[0]['3+ Reworks'] == 2
     assert frame.iloc[0]['3+ Return Count'] == 12
     figure = build_rework_ratio_chart(frame, '2026-10-01', True)
-    assert _heatmap_matrix(figure)[0] == [0, 0, 0, 0]
-    assert list(_heatmap_matrix(figure, 'customdata')[0][-1][:6]) == pytest.approx([2, 3, 200 / 3, 12, 0, 0])
+    assert figure.data[0].y[0] == pytest.approx(100 / 13)
+    assert figure.data[-1].y[0] == pytest.approx(1200 / 13)
+    assert list(figure.data[-1].customdata[0][:6]) == pytest.approx([2, 3, 200 / 3, 12, 0, 0])
 
 
 def test_rework_tooltip_ids_are_scoped_to_the_hovered_tier():
@@ -122,10 +113,9 @@ def test_rework_tooltip_ids_are_scoped_to_the_hovered_tier():
               for batch, count in [('one', 1), ('another', 1), ('two', 2)] for index in range(count)]
     frame = batch_ratios(batches, events, '2026-10-01', '2026-10-07', lambda batch: 'Person')
     figure = build_rework_ratio_chart(frame, '2026-10-01', True)
-    cells = _heatmap_matrix(figure, 'customdata')[0]
-    assert [cell[7] for cell in cells[:3]] == ['A-clean', 'A-return', 'B-return']
-    assert [cell[6] for cell in cells] == ['01:00:00', '02:00:00', '01:00:00', '00:00:00']
-    assert 'IDs: %{customdata[7]}' in figure.data[0].hovertemplate
+    assert [trace.customdata[0][-1] for trace in figure.data[:3]] == ['A-clean', 'A-return', 'B-return']
+    assert [trace.customdata[0][6] for trace in figure.data] == ['01:00:00', '02:00:00', '01:00:00', '00:00:00']
+    assert all('IDs: %{customdata[7]}' in trace.hovertemplate for trace in figure.data)
 
 
 def test_weighted_rework_keeps_clean_users_and_legacy_tiers_with_filtering():
@@ -136,11 +126,11 @@ def test_weighted_rework_keeps_clean_users_and_legacy_tiers_with_filtering():
                           {'User': 'Empty', 'Total Batches': 0, 'No Rework': 0,
                            'Reworked Once': 0, 'Reworked Twice+': 0}])
     figure = build_rework_ratio_chart(frame, '', True)
-    assert list(figure.data[0].y) == ['Clean', 'Returned']
-    assert _heatmap_matrix(figure)[0] == [None, 0, 0, 0]
+    assert list(figure.data[0].x) == ['Clean', 'Returned']
+    assert list(figure.data[0].y) == pytest.approx([100, 100 / 3])
     filtered = build_rework_ratio_chart(frame, '', True, ['Returned'], True)
-    assert list(filtered.data[0].y) == ['Returned']
-    assert _heatmap_matrix(filtered)[0] == [None, 0, None, 0]
+    assert list(filtered.data[0].x) == ['Returned']
+    assert filtered.data[2].y[0] == pytest.approx(200 / 3)
 
 
 def test_three_plus_durations_and_accounts_survive_saved_panel_roundtrip():
@@ -154,15 +144,12 @@ def test_three_plus_durations_and_accounts_survive_saved_panel_roundtrip():
     frame = batch_ratios(batches, events + [events[-1]], '2026-10-01', '2026-10-07', lambda b: 'Person')
     restored = panel_frame({'data': frame_payload(frame, 'rework')})
     figure = build_rework_ratio_chart(restored, '', True)
-    trace = figure.data[0]
-    assert [col.x[0] for col in figure.data[:-1]] == ['No Rework', '1 Rework', '2 Reworks', '3+ Reworks']
-    assert _heatmap_matrix(figure)[0] == [1, 2, 3, 15]
-    assert [cell[0] for cell in _heatmap_matrix(figure, 'customdata')[0]] == [1, 1, 1, 3]
-    cell = _heatmap_matrix(figure, 'customdata')[0][-1]
-    assert cell[3] == 14 and cell[6] == '15:00:00'
-    assert cell[7] == 'account-3, account-4, account-5'
-    assert cell[10] == 'Completed: 10:00:00 · 2 batches<br>Pending approvals: 05:00:00 · 1 batch'
-    assert sum(_heatmap_matrix(figure)[0]) == 21
+    assert [trace.name for trace in figure.data] == ['No recorded rework', '1 Rework', '2 Reworks', '3+ Reworks']
+    assert [trace.customdata[0][0] for trace in figure.data] == [1, 1, 1, 3]
+    assert [trace.customdata[0][6] for trace in figure.data] == ['01:00:00', '02:00:00', '03:00:00', '15:00:00']
+    assert figure.data[-1].customdata[0][3] == 14
+    assert figure.data[-1].customdata[0][7] == 'account-3, account-4, account-5'
+    assert sum(trace.y[0] for trace in figure.data) == pytest.approx(100)
 
 
 def test_legacy_three_plus_merges_scoped_durations_without_using_person_total():
@@ -172,11 +159,10 @@ def test_legacy_three_plus_merges_scoped_durations_without_using_person_total():
             'No Rework': 2, '3 Reworks': 4, '4 Reworks': 6, '5+ Reworks': 8},
         'Tier IDs': {'No Rework': 'clean', '3 Reworks': 'three', '4 Reworks': 'four', '5+ Reworks': 'eight'}}])
     figure = build_rework_ratio_chart(frame, '', False)
-    cells = _heatmap_matrix(figure, 'customdata')[0]
-    assert cells[0][6] == '02:00:00'
-    assert cells[-1][6] == '18:00:00'
-    assert cells[-1][3] == 15
-    assert cells[-1][7] == 'eight, four, three'
+    assert figure.data[0].customdata[0][6] == '02:00:00'
+    assert figure.data[-1].customdata[0][6] == '18:00:00'
+    assert figure.data[-1].customdata[0][3] == 15
+    assert figure.data[-1].customdata[0][7] == 'eight, four, three'
 
 
 def test_ratio_does_not_generate_batches_from_efficiency_or_current_rework():
@@ -197,9 +183,11 @@ def test_visible_stack_totals_are_outside_and_axis_has_ten_percent_headroom(dark
     frame = pd.DataFrame({'User': ['A', 'A', 'B'], 'Stage': ['Pending Leader', 'Pending Admin', 'Pending Leader'],
                           'Duration': [3600, 7200, 1800], 'Count': [1, 2, 1]})
     pending = build_pending_chart(frame, dark)
-    assert _heatmap_matrix(pending) == [[1, 0, 2], [.5, 0, 0]]
-    assert [trace.zmax for trace in pending.data[:-1]] == [1, 1, 2]
-    assert pending.layout.yaxis.autorange == 'reversed'
+    labels = {item.x: item for item in pending.layout.annotations if item.name == 'bar-hour-total'}
+    assert labels['A'].text == '03:00' and labels['A'].y == 3
+    assert labels['B'].text == '00:30'
+    assert all(item.yanchor == 'bottom' and item.yshift > 0 for item in labels.values())
+    assert list(pending.layout.yaxis.range) == pytest.approx([0, 3.3])
     assigned = build_assigned_chart(frame.assign(Stage=['New Assigned', 'Rework Assigned', 'New Assigned']), dark)
     labels = {item.y: item for item in assigned.layout.annotations if item.name == 'bar-hour-total'}
     assert labels['A'].text == '03:00' and labels['A'].x == 3
@@ -240,62 +228,8 @@ def test_extreme_duration_labels_use_clock_format_and_preserve_numeric_coordinat
     assert figure.layout.xaxis.range[1] == pytest.approx(seconds / 3600 * 1.1)
 
 
-def test_completed_lollipop_labels_and_stems_preserve_values_and_selection():
+def test_completed_bar_labels_remain_outside_after_shared_guardrails():
     figure = build_individual_chart(pd.DataFrame({'User': ['A'], 'Completed Duration': [9000]}), '', '', True)
     assert figure.data[0].text[0] == '02:30'
-    assert figure.data[0].type == 'scatter' and figure.data[0].mode == 'markers+text'
-    assert figure.data[0].textposition == 'top center' and figure.data[0].cliponaxis is False
-    assert figure.layout.clickmode == 'event+select'
-    assert figure.layout.shapes[0].y0 == 0 and figure.layout.shapes[0].y1 == 2.5
-    assert figure.layout.shapes[0].line.color == figure.data[0].marker.color
+    assert figure.data[0].textposition == 'outside' and figure.data[0].cliponaxis is False
     assert list(figure.layout.yaxis.range) == pytest.approx([0, 2.75])
-
-
-@pytest.mark.parametrize('dark', [True, False])
-def test_pending_matrix_combines_hours_and_counts_without_changing_the_scale(dark):
-    frame = pd.DataFrame([
-        dict(User='A', Stage='Pending Leader', Duration=3600, Count=2, IDs='first'),
-        dict(User='A', Stage='Pending Leader', Duration=1800, Count=1, IDs='second, first'),
-        dict(User='B', Stage='Pending Admin', Duration=0, Count=4, IDs='third'),
-    ])
-    frame.attrs['captured_at'] = '2026-11-16T00:00:00Z'
-    original = frame.copy(deep=True)
-    figure = build_pending_chart(frame, dark)
-    trace = figure.data[0]
-    assert list(trace.y) == ['A', 'B']
-    assert _heatmap_matrix(figure) == [[1.5, 0, 0], [0, 0, 0]]
-    assert list(trace.customdata[0][0][2:]) == ['01:30:00', 3, 'first, second']
-    assert figure.data[2].customdata[1][0][3] == 4
-    assert figure.layout.meta['captured_at'] == frame.attrs['captured_at']
-    assert not figure.layout.updatemenus
-    combined = build_pending_chart(frame, dark, show_counts=True)
-    assert _heatmap_matrix(combined) == _heatmap_matrix(figure)
-    assert [col.zmax for col in combined.data[:-1]] == [col.zmax for col in figure.data[:-1]]
-    assert [item.text for item in combined.layout.annotations] == ['01:30 / 3', '00:00 / 0', '00:00 / 0', '00:00 / 0', '00:00 / 0', '00:00 / 4', '01:30 / 3', '00:00 / 0', '00:00 / 4']
-    assert trace.hoverlabel.bgcolor[0][0] != figure.data[1].hoverlabel.bgcolor[0][0]
-    pd.testing.assert_frame_equal(frame, original)
-
-
-@pytest.mark.parametrize('dark', [True, False])
-def test_stack_and_lollipop_tooltips_match_their_data_colors(dark):
-    frame = pd.DataFrame({'User': ['A'], 'Stage': ['New Assigned'], 'Duration': [3600]})
-    assigned = build_assigned_chart(frame, dark)
-    for trace in assigned.data:
-        if trace.type == 'bar':
-            assert trace.hoverlabel.bgcolor == trace.marker.color
-    completed = build_individual_chart(pd.DataFrame({'User': ['A'], 'Completed Duration': [3600]}), '', '', dark)
-    assert completed.data[0].hoverlabel.bgcolor == completed.data[0].marker.color
-
-
-def test_assigned_combined_labels_sum_task_counts_and_keep_hour_coordinates():
-    frame = pd.DataFrame({'User': ['A', 'A', 'B'], 'Stage': ['New Assigned', 'Rework Assigned', 'New Assigned'],
-                          'Duration': [3600, 1800, 0], 'Count': [2, 3, 4]})
-    figure = build_assigned_chart(frame, True, show_counts=True)
-    totals = {item.y: item for item in figure.layout.annotations if item.name == 'bar-hour-total'}
-    assert totals['A'].text == '01:30 / 5' and totals['A'].x == 1.5
-    assert totals['B'].text == '00:00 / 4'
-    assert sum(sum(trace.x) for trace in figure.data if trace.type == 'bar') == 1.5
-    assert figure.layout.meta['bar_count_index'] == 2
-    assert all('/' in text for trace in figure.data if trace.type == 'bar' for text in trace.text)
-    missing = build_assigned_chart(frame.drop(columns='Count'), True, show_counts=True)
-    assert all(item.text.endswith('/ —') for item in missing.layout.annotations if item.name == 'bar-hour-total')

@@ -10,28 +10,6 @@ import pandas as pd
 from functools import lru_cache
 from hashlib import sha256
 from math import isfinite, ceil, floor, log10
-import colorsys
-import re
-
-
-def tooltip_text_color(color):
-    """Choose contrasting text for a CSS hex, rgb or hsl chart color."""
-    value = str(color).strip()
-    if value.startswith('#'):
-        value = value.lstrip('#')
-        if len(value) == 3:
-            value = ''.join(char * 2 for char in value)
-        rgb = [int(value[index:index + 2], 16) / 255 for index in (0, 2, 4)]
-    elif value.startswith('hsl'):
-        hue, saturation, lightness = map(float, re.findall(r'[\d.]+', value)[:3])
-        rgb = colorsys.hls_to_rgb(hue / 360, lightness / 100, saturation / 100)
-    elif value.startswith('rgb'):
-        rgb = [float(channel) / 255 for channel in re.findall(r'[\d.]+', value)[:3]]
-    else:
-        return '#ffffff'
-    linear = [channel / 12.92 if channel <= .04045 else ((channel + .055) / 1.055) ** 2.4 for channel in rgb]
-    luminance = sum(weight * channel for weight, channel in zip((.2126, .7152, .0722), linear))
-    return '#10261e' if luminance > .179 else '#ffffff'
 
 # ── Consistent user color palette ────────────────────────────────────────────
 USER_COLORS = {

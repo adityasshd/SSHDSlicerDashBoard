@@ -42,8 +42,6 @@ def approval_records(events, batches=(), checkpoints=()):
         except (ValueError, TypeError):
             value = None
         rows.append({'date': stamp.date().isoformat(), 'member': event.get('member'),
-                     'batch_id': event.get('batch_id'), 'event_id': event.get('id'),
-                     'cycle': event.get('cycle'),
                      'stage': event['stage'], 'seconds': value,
                      'inferred': event.get('provenance') == 'Stage inferred'})
     checkpoint = next((row for row in checkpoints if row.get('source') == 'batch-review'), {})

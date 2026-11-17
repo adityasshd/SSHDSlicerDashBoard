@@ -45,17 +45,3 @@ test('legend changes preserve clock totals and numeric axis values', () => {
     assert.equal(update['yaxis.range'][1], 1.5 * 1.1);
     assert.ok(update['yaxis.ticktext'].every(label => /^\d+:\d{2}(:\d{2})?$/.test(label)));
 });
-
-test('combined assignment totals add only visible task counts', () => {
-    const checks = helpers();
-    checks.refreshHourLabels({
-        layout: {meta: {hour_axis_orientation: 'h', bar_total_labels: 'h', bar_count_index: 2}, barmode: 'stack'},
-        _fullData: [
-            {type: 'bar', y: ['A'], x: [1], customdata: [['01:00:00', 'New Assigned', 2]]},
-            {type: 'bar', y: ['A'], x: [.5], customdata: [['00:30:00', 'Rework Assigned', 3]]},
-            {type: 'bar', y: ['A'], x: [10], visible: 'legendonly', customdata: [['10:00:00', 'New Assigned', 99]]},
-        ],
-    });
-    assert.equal(checks.update().annotations[0].text, '01:30 / 5');
-    assert.equal(checks.update().annotations[0].x, 1.5);
-});

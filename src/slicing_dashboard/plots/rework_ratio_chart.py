@@ -1,221 +1,133 @@
-﻿"""User-by-tier rework heatmap, filterable by completion state.
-
-Each batch's original duration is counted once in its return tier.
-The input report must already be scoped to the desired reporting period.
-"""
-
+﻿"""Return-weighted rework stacks with tier-specific duration and account evidence."""
 from html import escape
-from math import isfinite
 
 import pandas as pd
+import plotly.graph_objects as go
 
-from slicing_dashboard.plots.guardrails import checked_frame, safe_chart, state_figure
-from slicing_dashboard.plots.intensity_chart import intensity_chart
-from slicing_dashboard.plots.theme import format_seconds
-from slicing_dashboard.reporting.rework_tiers import (
-    LEGACY_UPPER,
-    TIERS,
-    prepare_rework_stacks,
-)
+from slicing_dashboard.plots.guardrails import safe_chart, checked_frame, finite_number, state_figure
+from slicing_dashboard.plots.theme import CHART_HEIGHT, theme_ctx, format_seconds
 
-VALID_COMPLETION_STATES = ("All", "Completed", "Pending approvals")
+TIERS = ('No Rework', '1 Rework', '2 Reworks', '3+ Reworks')
+LEGACY_UPPER = ('3 Reworks', '4 Reworks', '5+ Reworks')
 
 
-def _format_ids(ids) -> str:
-    """Escape raw batch IDs for a Plotly HTML hover label."""
-    return (
-        ", ".join(escape(str(item)) for item in sorted(ids, key=str)) or "Unavailable"
-    )
+def _tier_hours(row, sources, count):
+    """Older captures lack tier durations; never allocate the person's total by count."""
+    if not count:
+        return 0.
+    durations = row.get('Tier Duration (hrs)')
+    if not isinstance(durations, dict):
+        return None
+    values = [finite_number(durations.get(tier)) for tier in sources if row.get(tier, 0)]
+    return sum(values) if values and all(value is not None for value in values) else None
+
+
+def _tier_ids(row, sources):
+    scoped = row.get('Tier IDs')
+    if not isinstance(scoped, dict):
+        return set()
+    return {account.strip() for tier in sources for account in str(scoped.get(tier) or '').split(',')
+            if account.strip()}
+
+
+def _prepare_stacks(frame):
+    """Fold legacy six-tier captures and completion states without losing exact return weights."""
+    combined = {}
+    for row in frame.to_dict('records'):
+        counts = [row.get('No Rework', 0), row.get('1 Rework', row.get('Reworked Once', 0)),
+                  row.get('2 Reworks', row.get('Reworked Twice+', 0))]
+        sources = [[tier] for tier in TIERS[:3]]
+        if '3+ Reworks' in row:
+            upper = row['3+ Reworks']
+            upper_weight = row.get('3+ Return Count', upper * 3)
+            sources.append(['3+ Reworks'])
+        else:
+            upper = sum(row.get(tier, 0) for tier in LEGACY_UPPER)
+            five = row.get('5+ Reworks', 0)
+            five_weight = row.get('5+ Return Count', five * 5)
+            if five_weight < five * 5 or (five == 0 and five_weight != 0):
+                raise ValueError('Invalid return count for the legacy 5+ rework tier')
+            upper_weight = row.get('3 Reworks', 0) * 3 + row.get('4 Reworks', 0) * 4 + five_weight
+            sources.append(list(LEGACY_UPPER))
+        counts.append(upper)
+        if any(value != int(value) for value in counts) or sum(counts) != row['Total Batches']:
+            raise ValueError('Rework tiers do not match submitted batch totals')
+        if upper_weight < upper * 3 or (upper == 0 and upper_weight != 0) or upper_weight != int(upper_weight):
+            raise ValueError('Invalid return count for the 3+ rework tier')
+        weights = [counts[0], counts[1], counts[2] * 2, upper_weight]
+        result = combined.setdefault(row['User'], {'counts': [0] * 4, 'weights': [0] * 4,
+            'hours': [0.] * 4, 'ids': [set() for _ in TIERS], 'total': 0})
+        result['total'] += row['Total Batches']
+        for index, (count, weight, scoped) in enumerate(zip(counts, weights, sources)):
+            result['counts'][index] += count
+            result['weights'][index] += weight
+            hours = _tier_hours(row, scoped, count)
+            result['hours'][index] = (result['hours'][index] + hours
+                                    if result['hours'][index] is not None and hours is not None else None)
+            result['ids'][index].update(_tier_ids(row, scoped))
+    return combined
 
 
 @safe_chart
-def build_rework_ratio_chart(
-    ratio_df: pd.DataFrame,
-    start_date: str,
-    is_dark: bool,
-    effective_users: list | None = None,
-    is_filtering: bool = False,
-    show_counts: bool = False,
-    completion_state: str = "All",
-):
-    """Build a user × return-tier heatmap of actual batch hours or batch counts.
+def build_rework_ratio_chart(ratio_df: pd.DataFrame, start_date: str, is_dark: bool,
+                             effective_users: list | None = None,
+                             is_filtering: bool = False) -> go.Figure:
+    """Four weighted tiers; each hover reports only that stack's actual video hours.
 
-    completion_state:
-      * All: combine the two states, retaining their hover breakdown.
-      * Completed: show only completed batches.
-      * Pending approvals: show only pending-approval batches.
-
-    `start_date` is retained for compatibility; filtering dates happens upstream.
+    Batch duration counts once in its tier. Return counts still determine the
+    percentage weights. Legacy captures without scoped durations show Unavailable.
     """
-    if completion_state not in VALID_COMPLETION_STATES:
-        raise ValueError(f"Invalid completion state: {completion_state!r}")
-
-    frame = checked_frame(
-        ratio_df,
-        ["User", "Total Batches"],
-        [
-            "Total Batches",
-            *TIERS,
-            *LEGACY_UPPER,
-            "3+ Return Count",
-            "5+ Return Count",
-            "Reworked Once",
-            "Reworked Twice+",
-            "Total Duration (hrs)",
-            "Avg Batch Duration (hrs)",
-        ],
-    )
+    theme = theme_ctx(is_dark)
+    numeric = ['Total Batches', *TIERS, *LEGACY_UPPER, '3+ Return Count', '5+ Return Count',
+               'Reworked Once', 'Reworked Twice+', 'Total Duration (hrs)', 'Avg Batch Duration (hrs)']
+    frame = checked_frame(ratio_df, ['User', 'Total Batches'], numeric)
     if frame.empty:
-        return state_figure("No submitted batch data available.", is_dark)
-
-    if is_filtering and effective_users is not None:
-        frame = frame[frame["User"].isin(effective_users)]
-    frame = frame[frame["Total Batches"] > 0]
+        return state_figure('No submitted batch data available.', is_dark)
+    if is_filtering and effective_users:
+        frame = frame[frame['User'].isin(effective_users)]
+    frame = frame[frame['Total Batches'] > 0]
     if frame.empty:
-        return state_figure("No submitted batch data available.", is_dark)
-
-    has_status = "Completion State" in frame.columns
-    if (
-        has_status
-        and not frame["Completion State"].isin(("Completed", "Pending approvals")).all()
-    ):
-        raise ValueError("Unknown batch completion state")
-
-    if completion_state != "All":
-        if not has_status:
-            return state_figure(
-                "Completion status unavailable for this dataset.", is_dark
-            )
-        frame = frame[frame["Completion State"] == completion_state].copy()
-        if frame.empty:
-            return state_figure(
-                f"No {completion_state.lower()} batches available.", is_dark
-            )
-
-    grouping = ["User", "Completion State"] if has_status else ["User"]
+        return state_figure('No submitted batch data available.', is_dark)
+    grouping = ['User', 'Completion State'] if 'Completion State' in frame else ['User']
+    if 'Completion State' in frame and not frame['Completion State'].isin(['Completed', 'Pending approvals']).all():
+        raise ValueError('Unknown batch completion state')
     if frame.duplicated(grouping).any():
-        raise ValueError("Duplicate user batch totals")
-
-    stacks = prepare_rework_stacks(frame.sort_values(grouping))
-    users = list(
-        frame.groupby("User")["Total Batches"]
-        .sum()
-        .sort_values(ascending=False, kind="stable")
-        .index
+        raise ValueError('Duplicate user batch totals')
+    stacks = _prepare_stacks(frame.sort_values(grouping))
+    users = list(stacks)
+    figure = go.Figure()
+    # Keep the established rework severity colors for the remaining tiers.
+    colors = (['#10b981', '#facc15', '#f59e0b', '#991b1b'] if is_dark else
+              ['#059669', '#eab308', '#d97706', '#7f1d1d'])
+    for index, (tier, color) in enumerate(zip(TIERS, colors)):
+        values, customdata = [], []
+        for user in users:
+            stack = stacks[user]
+            count, hours = stack['counts'][index], stack['hours'][index]
+            weight = stack['weights'][index]
+            values.append(weight / sum(stack['weights']) * 100)
+            average = hours / count if hours is not None and count else None
+            ids = escape(', '.join(sorted(stack['ids'][index])) or 'Unavailable')
+            customdata.append([count, stack['total'], count / stack['total'] * 100, weight,
+                               hours, average, format_seconds(hours * 3600 if hours is not None else None), ids])
+        figure.add_trace(go.Bar(
+            name='No recorded rework' if index == 0 else tier, x=users, y=values,
+            marker={'color': color, 'line': {'width': 0}}, customdata=customdata,
+            textposition='none',
+            textfont={'size': 10, 'color': 'white'},
+            hovertemplate=(f'<b>%{{x}}</b><br>{tier}<br>Duration: %{{customdata[6]}}'
+                           '<br>Return-weighted share: %{y:.1f}%'
+                           '<br>Batch count: %{customdata[0]}<br>IDs: %{customdata[7]}<extra></extra>'),
+        ))
+    figure.update_layout(
+        barmode='stack', title='Return-weighted reworks', template=theme['template'],
+        paper_bgcolor=theme['bg_color'], plot_bgcolor=theme['bg_color'],
+        font={'family': 'Inter, sans-serif', 'size': 12, 'color': theme['font_color']},
+        height=CHART_HEIGHT, margin={'l': 45, 'r': 16, 't': 52, 'b': 100},
+        hovermode='closest', showlegend=True,
+        hoverlabel={'bgcolor': theme['hover_bg'], 'font_color': theme['hover_fg'], 'font_size': 13},
+        xaxis={'showgrid': False, 'automargin': True, 'tickfont': {'size': 11}},
+        yaxis={'title': '% of Weighted Total', 'range': [0, 100], 'showgrid': True,
+               'automargin': True, 'ticksuffix': '%', 'tickfont': {'size': 11}},
     )
-
-    total_label = '<b>Total</b>'
-    hours_matrix, counts_matrix, hour_labels, custom_matrix = [], [], [], []
-    users.append(total_label)
-    for user in users:
-        user_stacks = [
-            (state, stack) for (name, state), stack in stacks.items() if name == user or user == total_label
-        ]
-        total = int(sum(stack["total"] for _, stack in user_stacks))
-        row_hours, row_counts, row_labels, row_custom = [], [], [], []
-
-        for index, tier in enumerate(TIERS):
-            count = int(sum(stack["counts"][index] for _, stack in user_stacks))
-            durations = [stack["hours"][index] for _, stack in user_stacks]
-            duration = (
-                sum(float(value) for value in durations)
-                if all(value is not None for value in durations)
-                else None
-            )
-            if duration is not None and (not isfinite(duration) or duration < 0):
-                raise ValueError("Invalid tier duration")
-
-            weight = sum(stack["weights"][index] for _, stack in user_stacks)
-            ids = set().union(*(stack["ids"][index] for _, stack in user_stacks))
-            formatted_duration = (
-                format_seconds(duration * 3600)
-                if duration is not None
-                else "Unavailable"
-            )
-
-            details = []
-            if has_status:
-                # For a selected state show only that state; for All show both.
-                detail_states = (
-                    ("Completed", "Pending approvals")
-                    if completion_state == "All"
-                    else (completion_state,)
-                )
-                for state in detail_states:
-                    state_stacks = [stack for item_state, stack in user_stacks if item_state == state]
-                    known_hours = [stack['hours'][index] for stack in state_stacks]
-                    state_hours = sum(known_hours) if all(value is not None for value in known_hours) else None
-                    state_count = int(sum(stack['counts'][index] for stack in state_stacks))
-                    state_duration = (
-                        format_seconds(float(state_hours) * 3600)
-                        if state_hours is not None
-                        else "Unavailable"
-                    )
-                    details.append(
-                        f"{escape(state)}: {state_duration} · {state_count} "
-                        f"{'batch' if state_count == 1 else 'batches'}"
-                    )
-            else:
-                details.append("Completion status unavailable")
-
-            row_hours.append(duration)
-            row_counts.append(count)
-            row_labels.append(
-                format_seconds(duration * 3600, compact=True)
-                if duration is not None
-                else "—"
-            )
-            row_custom.append(
-                [
-                    count,
-                    total,
-                    count / total * 100 if total else 0,
-                    weight,
-                    duration,
-                    duration / count if duration is not None and count else None,
-                    formatted_duration,
-                    _format_ids(ids),
-                    escape('Total' if user == total_label else str(user)),
-                    escape(str(tier)),
-                    "<br>".join(details),
-                ]
-            )
-
-        hours_matrix.append(row_hours)
-        counts_matrix.append(row_counts)
-        hour_labels.append(row_labels)
-        custom_matrix.append(row_custom)
-
-    note = "Each batch duration counted once"
-    if completion_state != "All":
-        note += f" · {completion_state} only"
-    elif has_status:
-        note += " · Completed + Pending approvals"
-    else:
-        note += " · completion status unavailable"
-    note += '<br>Batch / return-date cohort · whole batches, not task completion hours'
-
-    return intensity_chart(
-        users,
-        list(TIERS),
-        {
-            "Hours": (hours_matrix, hour_labels),
-            "Batches": (
-                counts_matrix,
-                [[str(value) for value in row] for row in counts_matrix],
-            ),
-        },
-        custom_matrix,
-        (
-            "<b>%{customdata[8]}</b><br>%{customdata[9]}"
-            "<br>Duration: %{customdata[6]}"
-            "<br>%{customdata[0]} of %{customdata[1]} batches "
-            "(%{customdata[2]:.1f}%)"
-            "<br>%{customdata[10]}"
-            "<br>IDs: %{customdata[7]}<extra></extra>"
-        ),
-        "Rework intensity by tier",
-        is_dark,
-        note,
-        show_counts=show_counts,
-    )
+    return figure

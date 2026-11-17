@@ -6,7 +6,7 @@ from dash import Input, Output, State, dcc, html
 import dash_bootstrap_components as dbc
 
 from slicing_dashboard.reporting.dashboard_panels import (
-    KINDS, capture_panel, saved_panel, latest_saved_panel, panel_frame, selected_summary,
+    KINDS, capture_panel, saved_panel, panel_frame, selected_summary,
 )
 from slicing_dashboard.plots import (
     build_kpi_layout, build_individual_chart, build_rework_ratio_chart,
@@ -14,7 +14,6 @@ from slicing_dashboard.plots import (
 )
 from slicing_dashboard.plots.guardrails import state_figure
 from slicing_dashboard.runtime import viewer_mode
-from slicing_dashboard.reporting.settlement_snapshots import manager_snapshot, period_for_range
 
 GRAPH_IDS = {'completion': 'individual-chart', 'rework': 'rework-ratio-chart',
              'assigned': 'assigned-chart', 'pending': 'pending-chart'}
@@ -33,29 +32,19 @@ def matching_packet(request, packet):
 
 def choose_packet(request, saved, live):
     saved, live = matching_packet(request, saved), matching_packet(request, live)
-    if request.get('frozen'):
-        if saved and saved.get('available'):
-            return saved, 'Final settled-period snapshot · read only'
-        return None, 'No verified snapshot exists for this settled period. Raw history has not been archived.'
     if live and live.get('available'):
         return live, f"Captured {live['captured_at']}"
     if saved and saved.get('available'):
         if viewer_mode():
-            fallback = saved.get('fallback')
-            if fallback:
-                return saved, (
-                    f"STALE · Saved through {fallback['as_of_date']} "
-                    f"(requested through {fallback['requested_end']}); "
-                    f"captured {saved['captured_at']}. Not current.")
-            return saved, 'Saved data'
+            return saved, f"Saved {saved['captured_at']}"
         state = 'Latest check failed' if live else 'Checking latest data'
         return saved, f"Saved {saved['captured_at']} · {state}"
     if viewer_mode():
-        return None, 'No saved data for this range. Waiting for updated data.'
+        return None, 'No saved capture for this range. Waiting for the data collector.'
     return None, 'Latest data unavailable. Refresh to retry.' if live else 'Loading latest data…'
 
 
-def render_panel(kind, request, saved, live, selected, theme, roster, show_counts=False, completion_state='All'):
+def render_panel(kind, request, saved, live, selected, theme, roster):
     dark = (theme or 0) % 2 == 0
     packet, status = choose_packet(request, saved, live)
     if not packet:
@@ -63,115 +52,24 @@ def render_panel(kind, request, saved, live, selected, theme, roster, show_count
                    else state_figure(status, dark))
         return content, status
     if kind == 'summary':
-        fallback = packet.get('fallback')
-        label = (f"STALE · Through {fallback['as_of_date']} · Not live"
-                 if fallback else 'Updated' if live and live.get('available') else 'Saved capture')
         return build_kpi_layout(selected_summary(packet['data'], selected, roster),
                                 packet['data']['funnel'], dark), html.Span(
-                                    label, className='text-warning' if fallback else '', title=status)
+                                    'Updated' if live and live.get('available') else 'Saved capture', title=status)
     frame = panel_frame(packet)
     if selected is not None and 'User' in frame:
         frame = frame[frame['User'].isin(selected)]
     if kind == 'completion':
         figure = build_individual_chart(frame, request['start'], request['end'], dark)
     elif kind == 'rework':
-        figure = build_rework_ratio_chart(frame, request['start'], dark, None, False, show_counts=show_counts, completion_state=completion_state)
+        figure = build_rework_ratio_chart(frame, request['start'], dark, None, False)
     elif kind == 'assigned':
-        figure = build_assigned_chart(frame, dark, show_counts=show_counts)
+        figure = build_assigned_chart(frame, dark)
     else:
-        figure = build_pending_chart(frame, dark, show_counts=show_counts)
+        figure = build_pending_chart(frame, dark)
     return figure, status
 
 
-def render_rework_hours(request, saved, live, selected, theme):
-    """Reuse rework packets so the new KPI never starts another source read."""
-    from slicing_dashboard.plots.kpi_overview import build_rework_hours_metric
-    from slicing_dashboard.reporting.rework_tiers import rework_hours
-
-    dark = (theme or 0) % 2 == 0
-    packet, status = choose_packet(request, saved, live)
-    if not packet:
-        return build_rework_hours_metric(status=status, is_dark=dark)
-    try:
-        frame = panel_frame(packet)
-        if selected is not None and 'User' in frame:
-            frame = frame[frame['User'].isin(selected)]
-        hours = rework_hours(frame)
-    except (KeyError, TypeError, ValueError):
-        return build_rework_hours_metric(status='Rework hours unavailable. Refresh to retry.', is_dark=dark)
-    note = ('Original batch duration by recorded return tier; not additional rework labor.' +
-            (' Some tier hours are unavailable.' if any(value is None for value in hours.values()) else ''))
-    note += ' ' + visible_status(request, saved, live)
-    return build_rework_hours_metric(hours, status=note, is_dark=dark)
-
-
-def visible_status(request, saved, live):
-    """Keep missing/stale evidence visible without capture metadata in the UI."""
-    packet, status = choose_packet(request, saved, live)
-    if not packet:
-        return status
-    if packet.get('fallback'):
-        return 'Saved data is stale; waiting for updated data.'
-    if live and matching_packet(request, live) and not live.get('available'):
-        return 'Latest read failed; showing saved data.'
-    return ''
-
-
-def period_completion(request, saved, live):
-    """Exact period task output; no lifetime batch durations or inferred dates."""
-    if not request:
-        return {'available': False, 'rows': []}
-    packet, _ = choose_packet(request, saved, live)
-    if not packet:
-        return {'available': False, 'rows': []}
-    frame = panel_frame(packet)
-    return {'available': True, 'start': request['start'], 'end': request['end'],
-            'is_snapshot': bool(packet.get('fallback')),
-            'rows': [{'User': row['User'], 'seconds': row['Completed Duration'],
-                      'tasks': row.get('Completed Tasks')} for row in frame.to_dict('records')]}
-
-
-def overview_values(kind, request, saved, live, selected, theme):
-    """Derive an overview section from the exact packet used by its chart.
-
-    Sections stay mounted, so an independent summary repaint cannot erase
-    another panel's data. No source reads or synthetic balancing values.
-    """
-    from slicing_dashboard.plots.kpi_overview import build_workload_metric
-    from slicing_dashboard.plots.theme import format_seconds
-    from slicing_dashboard.plots.guardrails import checked_frame
-    packet, _ = choose_packet(request, saved, live)
-    if kind == 'rework':
-        return render_rework_hours(request, saved, live, selected, theme)
-    if not packet:
-        return '—' if kind == 'completion' else build_workload_metric({}, kind, visible_status(request, saved, live))
-    try:
-        frame = panel_frame(packet)
-        if selected is not None and 'User' in frame:
-            frame = frame[frame['User'].isin(selected)]
-        if kind == 'completion':
-            frame = checked_frame(frame, ['User', 'Completed Duration'], ['Completed Duration'])
-            return format_seconds(frame['Completed Duration'].sum())
-        frame = checked_frame(frame, ['Stage', 'Duration'], ['Duration'])
-        durations = frame.groupby('Stage')['Duration'].sum()
-        if kind == 'pending':
-            kpis = {stage.lower() + '_review_duration': float(durations.get('Pending ' + stage, 0))
-                    for stage in ('Leader', 'Auditor', 'Admin')}
-            kpis['total_pending_duration'] = sum(kpis.values())
-        else:
-            kpis = {'assigned_duration': float(durations.get('New Assigned', 0)),
-                    'rework_assigned_duration': float(durations.get('Rework Assigned', 0))}
-            kpis['assigned_now_duration'] = sum(kpis.values())
-        return build_workload_metric(kpis, kind, visible_status(request, saved, live))
-    except (KeyError, TypeError, ValueError):
-        return '—' if kind == 'completion' else build_workload_metric({}, kind, 'Workload unavailable.')
-
-
 def register_dashboard_panels(app, manager, roster):
-    @app.callback(Output('kpi-overview', 'className'), Input('theme-toggle', 'n_clicks'))
-    def overview_theme(theme):
-        return 'kpiu-overview ' + ('kpiu-dark theme-dark' if (theme or 0) % 2 == 0 else 'kpiu-light theme-light')
-
     @app.callback(
         Output('dashboard-panel-request', 'data'),
         Output('dashboard-pending-request', 'data'),
@@ -188,92 +86,62 @@ def register_dashboard_panels(app, manager, roster):
         request = {'id': uuid4().hex, 'start': start, 'end': end,
                    'force': trigger in ('refresh-btn', 'auto-refresh-interval'),
                    'pending_force': trigger in ('workflow-notification-interval', 'workflow-bell')}
-        closed = period_for_range(manager.get_available_periods(), start, end)
-        if closed is not None:
-            # Never read live queues or rolling panel keys for a settled period.
-            request['frozen'] = True
-            try:
-                snapshot = manager_snapshot(manager, start, end)
-            except (ValueError, KeyError, TypeError):
-                snapshot = None
-            packets = (snapshot or {}).get('panels', {})
-            frozen_saved = [
-                {**packets.get(kind, {'available': False}), 'request_id': request['id']}
-                for kind in KINDS
-            ]
-            return request, request, *frozen_saved
-        # A manual refresh in viewer mode reloads MongoDB's persisted snapshot.
-        # Warm Vercel instances otherwise keep a stale import-time copy forever.
-        if viewer_mode() and trigger == 'refresh-btn':
-            manager._load_snapshot()
         # Notification checks affect the current review queue only. A new shared
         # request ID would otherwise restart all five panel capture pipelines.
         if request['pending_force']:
-            packet = (saved_panel(manager, 'pending', start, end)
-                      or (latest_saved_panel(manager, 'pending', start, end)
-                          if viewer_mode() else None)
-                      or {'available': False})
+            packet = saved_panel(manager, 'pending', start, end) or {'available': False}
             return (dash.no_update, request,
                     *[{**packet, 'request_id': request['id']} if kind == 'pending'
                       else dash.no_update for kind in KINDS])
         saved = []
         for kind in KINDS:
-            packet = (saved_panel(manager, kind, start, end)
-                      or (latest_saved_panel(manager, kind, start, end)
-                          if viewer_mode() else None)
-                      or {'available': False})
+            packet = saved_panel(manager, kind, start, end) or {'available': False}
             saved.append({**packet, 'request_id': request['id']})
         return request, request, *saved
 
     for kind in KINDS:
         _register_panel(app, manager, roster, kind)
 
+    def review_mix(request, saved, live, selected, theme, pathname):
+        if not request or pathname not in (None, '/', '/dashboard'):
+            raise dash.exceptions.PreventUpdate
+        from slicing_dashboard.plots.overview_charts import build_review_workload_donut
+        packet, status = choose_packet(request, saved, live)
+        dark = (theme or 0) % 2 == 0
+        if not packet:
+            return state_figure(status, dark, 340)
+        frame = panel_frame(packet)
+        if selected is not None and 'User' in frame:
+            frame = frame[frame['User'].isin(selected)]
+        return build_review_workload_donut(frame, dark)
+
+    @app.callback(Output('review-workload-chart', 'figure'),
+                  Input('dashboard-pending-request', 'data'), Input('dashboard-saved-pending', 'data'),
+                  Input('selected-users-store', 'data'), Input('theme-toggle', 'n_clicks'),
+                  State('dashboard-live-pending', 'data'), State('report-location', 'pathname'))
+    def paint_mix_saved(request, saved, selected, theme, live, pathname):
+        return review_mix(request, saved, live, selected, theme, pathname)
+
+    @app.callback(Output('review-workload-chart', 'figure', allow_duplicate=True),
+                  Input('dashboard-live-pending', 'data'), State('dashboard-pending-request', 'data'),
+                  State('dashboard-saved-pending', 'data'), State('selected-users-store', 'data'),
+                  State('theme-toggle', 'n_clicks'), State('report-location', 'pathname'), prevent_initial_call=True)
+    def paint_mix_live(live, request, saved, selected, theme, pathname):
+        if not request or not matching_packet(request, live):
+            raise dash.exceptions.PreventUpdate
+        return review_mix(request, saved, live, selected, theme, pathname)
+
+
 def _register_panel(app, manager, roster, kind):
     request_store = 'dashboard-pending-request' if kind == 'pending' else 'dashboard-panel-request'
-    outputs = ([Output('kpi-secondary', 'children'), Output('refresh-status', 'children'),
-                Output('kpi-approved-comparison', 'children'), Output('kpi-approved-comparison', 'className')]
+    outputs = ([Output('kpi-cards', 'children'), Output('refresh-status', 'children')]
                if kind == 'summary' else
-               [Output(GRAPH_IDS[kind], 'figure'), Output(GRAPH_IDS[kind] + '-status', 'children'),
-                Output({'completion': 'kpi-approved-value', 'rework': 'kpi-rework-breakdown',
-                        'assigned': 'kpi-assigned', 'pending': 'kpi-review'}[kind], 'children')])
-    if kind == 'pending':
-        outputs.append(Output('review-workload-chart', 'figure'))
-    rework_input = [Input('rework-completion-state', 'value')] if kind == 'rework' else []
-    rework_state = [State('rework-completion-state', 'value')] if kind == 'rework' else []
-    def render(request, saved, live, selected, theme, completion_state='All'):
-        if kind == 'summary':
-            from slicing_dashboard.plots.kpi_overview import build_secondary_metrics, _percent, _comparison
-            packet, status = choose_packet(request, saved, live)
-            kpis = selected_summary(packet['data'], selected, roster) if packet else {}
-            current = matching_packet(request, live)
-            label = ('Settled period · read only' if request.get('frozen') else
-                     'Updated' if current and current.get('available') else 'Saved data')
-            return (build_secondary_metrics(kpis), visible_status(request, saved, live) or label,
-                    _percent(kpis.get('approved_pct')), 'kpiu-trend kpiu-' + _comparison(kpis.get('approved_pct')))
-        # The rework chart is always the persisted batch/return-tier cohort.
-        # Period-completed task hours belong to the independent completion
-        # chart, never a fifth heatmap column or a replacement for tier cells.
-        figure, _ = render_panel(kind, request, saved, live, selected, theme, roster,
-                                 completion_state=completion_state)
-        result = (figure, visible_status(request, saved, live), overview_values(kind, request, saved, live, selected, theme))
-        if kind == 'pending':
-            from slicing_dashboard.plots.overview_charts import build_review_workload_donut
-            packet, status = choose_packet(request, saved, live)
-            dark = (theme or 0) % 2 == 0
-            if packet:
-                frame = panel_frame(packet)
-                if selected is not None and 'User' in frame:
-                    frame = frame[frame['User'].isin(selected)]
-                donut = build_review_workload_donut(frame, dark)
-            else:
-                donut = state_figure(status, dark, 340)
-            return *result, donut
-        return result
+               [Output(GRAPH_IDS[kind], 'figure'), Output(GRAPH_IDS[kind] + '-status', 'children')])
 
     @app.callback(Output(f'dashboard-live-{kind}', 'data'),
                   Input(f'dashboard-ready-{kind}', 'data'), State(request_store, 'data'))
     def capture(ready, request):
-        if viewer_mode() or (request or {}).get('frozen'):
+        if viewer_mode():
             raise dash.exceptions.PreventUpdate
         if not request or not matching_packet(request, ready):
             raise dash.exceptions.PreventUpdate
@@ -287,21 +155,18 @@ def _register_panel(app, manager, roster, kind):
                   Output(f'dashboard-painted-{kind}', 'data'),
                   Input(request_store, 'data'), Input(f'dashboard-saved-{kind}', 'data'),
                   Input('selected-users-store', 'data'), Input('theme-toggle', 'n_clicks'),
-                  *rework_input,
                   State(f'dashboard-live-{kind}', 'data'), State('report-location', 'pathname'),
                   State(f'dashboard-ready-{kind}', 'data'))
-    def paint_saved(request, saved, selected, theme, *arguments):
-        completion_state, arguments = ((arguments[0] or 'All'), arguments[1:]) if kind == 'rework' else ('All', arguments)
-        live, pathname, ready = arguments
+    def paint_saved(request, saved, selected, theme, live, pathname, ready):
         if not request or pathname not in (None, '/', '/dashboard'):
             raise dash.exceptions.PreventUpdate
         # Start this panel's live read only after its saved/loading response.
         # Otherwise a fast live response can be overwritten by a slower first
         # paint from a different callback, leaving the selected range stale.
-        start_capture = (dash.no_update if viewer_mode() or request.get('frozen') or matching_packet(request, ready)
+        start_capture = (dash.no_update if viewer_mode() or matching_packet(request, ready)
                          else {'request_id': request['id']})
         painted = {'request_id': request['id'], 'id': uuid4().hex}
-        return *render(request, saved, live, selected, theme, completion_state), start_capture, painted
+        return *render_panel(kind, request, saved, live, selected, theme, roster), start_capture, painted
 
     @app.callback(*[Output(output.component_id, output.component_property, allow_duplicate=True)
                     for output in outputs],
@@ -309,8 +174,8 @@ def _register_panel(app, manager, roster, kind):
                   Input(f'dashboard-painted-{kind}', 'data'),
                   State(request_store, 'data'), State(f'dashboard-saved-{kind}', 'data'),
                   State('selected-users-store', 'data'), State('theme-toggle', 'n_clicks'),
-                  State('report-location', 'pathname'), *rework_state, prevent_initial_call=True)
-    def paint_live(live, painted, request, saved, selected, theme, pathname, completion_state='All'):
-        if not request or request.get('frozen') or not matching_packet(request, live) or pathname not in (None, '/', '/dashboard'):
+                  State('report-location', 'pathname'), prevent_initial_call=True)
+    def paint_live(live, painted, request, saved, selected, theme, pathname):
+        if not request or not matching_packet(request, live) or pathname not in (None, '/', '/dashboard'):
             raise dash.exceptions.PreventUpdate
-        return render(request, saved, live, selected, theme, completion_state or 'All')
+        return render_panel(kind, request, saved, live, selected, theme, roster)
