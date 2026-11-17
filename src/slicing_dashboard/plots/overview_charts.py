@@ -76,7 +76,7 @@ def build_approval_progression(payload, dates, selected_users=None, is_dark=True
         metrics = totals[stage]['Approved']
         hours = (format_seconds(metrics['seconds'])
                  if not metrics['missing'] else 'Incomplete duration evidence')
-        descriptions.append([f'{count} verified batch outcomes', hours])
+        descriptions.append([f'{count} currently recorded batch-stage outcomes', hours])
     theme = theme_ctx(is_dark)
     colors = REVIEW_COLORS if is_dark else ['#165a50', '#78b844', '#8b5cf6']
     figure = go.Figure(go.Funnel(
@@ -85,13 +85,14 @@ def build_approval_progression(payload, dates, selected_users=None, is_dark=True
         customdata=descriptions,
         marker={'color': colors, 'line': {'width': 0}},
         connector={'line': {'color': 'rgba(148,163,184,.22)', 'width': 1}},
-        hovertemplate='<b>%{y} approved</b><br>%{x} batches'
-                      '<br>Batch-cohort video duration: %{customdata[1]}<extra></extra>',
+        hovertemplate='<b>%{y} (latest batch status)</b><br>%{x} batches'
+                      '<br>Original cohort video duration: %{customdata[1]}'
+                      '<br>Not dated Admin-approved or completed-task hours<extra></extra>',
     ))
     figure.update_layout(template=theme['template'], height=340,
-        title={'text': 'Batch approval progression',
-               'subtitle': {'text': 'One batch cohort · latest known outcome'
-                           '<br>Not period-completed task hours',
+        title={'text': 'Batch stage progression',
+               'subtitle': {'text': 'Current batch-status cohort · NOT dated approvals'
+                           '<br>Use Completed Hours for verified period output',
                             'font': {'size': 10}}},
         paper_bgcolor=theme['bg_color'], plot_bgcolor=theme['bg_color'], showlegend=False,
         font={'color': theme['font_color'], 'family': 'Inter, sans-serif'},
