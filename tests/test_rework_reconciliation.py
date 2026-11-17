@@ -94,13 +94,12 @@ def test_rework_toggle_callback_repaints_without_source_reads():
               "data": frame_payload(frame, "rework")}
     request = {"id": "r1", "start": "2026-11-01", "end": "2026-11-17"}
     fn = callback["callback"].__wrapped__
-    completed = {**packet, 'data': frame_payload(pd.DataFrame([
-        {'User': 'A', 'Completed Duration': 7200, 'Completed Tasks': 2},
-        {'User': 'B', 'Completed Duration': 21600, 'Completed Tasks': 6},
-    ]), 'completion')}
-    all_fig, _, _, _, _ = fn(request, packet, None, 0, "All", completed, None, None, "/", None)
-    complete_fig, _, _, _, _ = fn(request, packet, None, 0, "Completed", completed, None, None, "/", None)
-    pending_fig, _, _, _, _ = fn(request, packet, None, 0, "Pending approvals", completed, None, None, "/", None)
+    all_fig, _, _, _, _ = fn(request, packet, None, 0, "All", None, "/", None)
+    complete_fig, _, _, _, _ = fn(request, packet, None, 0, "Completed", None, "/", None)
+    pending_fig, _, _, _, _ = fn(request, packet, None, 0, "Pending approvals", None, "/", None)
+    assert list(all_fig.data[0].x) == ['No Rework', '1 Rework', '2 Reworks', '3+ Reworks']
+    assert len(all_fig.data[0].z[0]) == 4
+    assert all(value is not None for row in all_fig.data[0].z for value in row)
     assert sum(all_fig.layout.meta['column_totals']) == pytest.approx(12)
     assert heatmap_hours(complete_fig) == pytest.approx(8)
     assert heatmap_hours(pending_fig) == pytest.approx(4)
