@@ -50,6 +50,7 @@ from slicing_dashboard.reporting.user_reports import prepare_user_report, get_us
 from slicing_dashboard.reporting.approval_reports import prepare_approval_trend
 from slicing_dashboard.plots.approval_trend_chart import build_approval_trend_chart
 from slicing_dashboard.pages.workflow_history import notification_panel, history_table, notification_updates, notification_toasts
+from slicing_dashboard.pages.monthly_returns import register_monthly_returns
 
 # ── Bootstrap / initialise ───────────────────────────────────────────────
 dm = DataManager()
@@ -352,6 +353,7 @@ app.layout = add_reporting_shell(app.layout, today_iso(), report_users(
     dm.user_mapping, dm._snapshot_payload,
     mapping_records=list(getattr(dm, 'user_mapping_full', {}).values())))
 app.layout = contain_graphs(app.layout)
+register_monthly_returns(app, dm, available_users)
 
 
 @app.callback(

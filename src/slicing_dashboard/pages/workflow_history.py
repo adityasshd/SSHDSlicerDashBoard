@@ -74,6 +74,28 @@ def layout_workflow_history(today):
             html.Div([html.Label('Search', htmlFor='workflow-search'), dbc.Input(id='workflow-search',
                 placeholder='Batch, task, member, reviewer or reason', debounce=True)]),
         ], className='workflow-filters'),
+        report_section('Current-month rework history', [
+            html.P('Observed batch returns by event date · the Completed/Pending Review classification uses the latest saved batch status, not the historical status when returned. No reviewer identities or additional work hours are inferred.',
+                   className='text-secondary small'),
+            html.Div(id='workflow-monthly-return-summary', className='text-secondary small',
+                     **{'aria-live': 'polite'}),
+            dcc.Graph(id='workflow-monthly-return-chart', config={'scrollZoom': False},
+                      responsive=True, style={'height': '355px', 'width': '100%'}),
+            html.Div(dash_table.DataTable(
+                id='workflow-monthly-return-table',
+                data=[],
+                columns=[{'name': label, 'id': label} for label in (
+                    'Batch', 'Member', 'Latest Status', 'Returns This Month',
+                    'Total Observed Returns Through End', 'First Return This Month',
+                    'Latest Return This Month', 'Ledger Linked')],
+                page_size=15, page_action='native', sort_action='native',
+                style_table={'overflowX': 'auto'},
+                style_cell={'textAlign': 'left', 'padding': '8px', 'minWidth': '105px',
+                            'maxWidth': '250px', 'whiteSpace': 'normal', 'overflowWrap': 'anywhere'},
+            ), className='report-table-scroll'),
+            html.P('Events are deduplicated per observed return occurrence. This is not an exhaustive lifetime return history; upstream provides at most 100 recent records per operator.',
+                   className='text-secondary small'),
+        ]),
         html.Div(id='workflow-history-status', className='text-secondary small', **{'aria-live': 'polite'}),
         html.Div(id='workflow-batch-state'),
         report_section('Recorded Actions', html.Div(dash_table.DataTable(
