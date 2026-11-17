@@ -131,9 +131,10 @@ def _walk(node):
     if isinstance(node, (list, tuple)):
         for item in node:
             yield from _walk(item)
-    elif hasattr(node, 'children'):
+    else:
         yield node
-        yield from _walk(node.children)
+        if hasattr(node, 'children'):
+            yield from _walk(node.children)
 
 
 def test_intensity_ui_has_exactly_two_status_modes_and_default_completed():
