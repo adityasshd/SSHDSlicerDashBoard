@@ -42,20 +42,18 @@ def chart_graph(**kwargs):
             html.Div(
                 [
                     html.Span(
-                        "Hours measurement",
+                        "Batch status",
                         className="chart-control-label",
                     ),
                     dcc.RadioItems(
                         id="rework-completion-state",
                         options=[
-                            {"label": "Completed hours · verified", "value": "Verified completed hours"},
-                            {"label": "All batches · original video", "value": "All"},
-                            {"label": "Completed batches · original video", "value": "Completed"},
-                            {"label": "Pending batches · original video", "value": "Pending approvals"},
+                            {"label": "Completed", "value": "Completed"},
+                            {"label": "Pending Review", "value": "Pending approvals"},
                         ],
-                        value="Verified completed hours",
+                        value="Completed",
                         inline=True,
-                        persistence='completed-hours-source-v4',
+                        persistence='batch-return-status-two-views-v1',
                         persistence_type="session",
                         className="rework-state-toggle",
                     ),
