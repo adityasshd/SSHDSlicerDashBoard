@@ -70,10 +70,10 @@ def test_pyramid_reads_saved_batch_cohort_not_completion_or_sparse_daily_history
     ], lambda batch: batch['username'])
     data = {'range_start': '2026-10-01', 'range_end': '2026-10-31',
             'history': [], 'approvals': {'funnel': cohort}}
-    assert not handler(data, None, 0, '/', None).data
+    assert not handler(data, None, 0, '/', 'Batches', None, None, None, None).data
     # The chart must use the *selected calendar range*, not the available
     # daily-completion history (which can have missing dates).
     data.update(range_start='2026-11-01', range_end='2026-11-17')
-    chart = handler(data, None, 0, '/', None)
+    chart = handler(data, None, 0, '/', 'Batches', None, None, None, None)
     assert list(chart.data[0].x) == [3, 2, 1]
     assert 'Batch stage progression' in chart.layout.title.text

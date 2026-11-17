@@ -42,22 +42,20 @@ def chart_graph(**kwargs):
             html.Div(
                 [
                     html.Span(
-                        "Completion state",
+                        "Hours measurement",
                         className="chart-control-label",
                     ),
                     dcc.RadioItems(
                         id="rework-completion-state",
                         options=[
-                            {"label": "All submitted batches", "value": "All"},
-                            {"label": "Completed batches (latest status)", "value": "Completed"},
-                            {
-                                "label": "Pending approvals",
-                                "value": "Pending approvals",
-                            },
+                            {"label": "Completed hours · verified", "value": "Verified completed hours"},
+                            {"label": "All batches · original video", "value": "All"},
+                            {"label": "Completed batches · original video", "value": "Completed"},
+                            {"label": "Pending batches · original video", "value": "Pending approvals"},
                         ],
-                        value="All",
+                        value="Verified completed hours",
                         inline=True,
-                        persistence='batch-return-tiers-v2',
+                        persistence='completed-hours-source-v4',
                         persistence_type="session",
                         className="rework-state-toggle",
                     ),
@@ -65,6 +63,23 @@ def chart_graph(**kwargs):
                 className="rework-state-control",
             )
         )
+
+    if graph_id == "approval-progression-chart":
+        controls.append(html.Div([
+            html.Span("Display", className="chart-control-label"),
+            dcc.RadioItems(
+                id="approval-progression-unit",
+                options=[
+                    {"label": "Completed hours (verified)", "value": "Hours"},
+                    {"label": "Batch stages (counts)", "value": "Batches"},
+                ],
+                value="Hours",
+                inline=True,
+                persistence="approval-completion-unit-v3",
+                persistence_type="session",
+                className="rework-state-toggle",
+            ),
+        ], className="rework-state-control"))
 
     if controls:
         children.insert(

@@ -98,8 +98,8 @@ def test_rework_splits_same_person_and_preserves_saved_state_and_unique_returns(
     for dark in (True, False):
         figure = build_rework_ratio_chart(restored, '2026-10-01', dark)
         trace = figure.data[0]
-        assert list(trace.y) == ['Person']
-        assert list(trace.z[0]) == [1, 1, 0, 0]
+        assert list(trace.y[:-1]) == ['Person']
+        assert [cell[-1] for cell in trace.customdata[0]] == [1, 1, 0, 0]
         assert trace.customdata[0][0][1] == 2
         assert trace.customdata[0][0][6] == '01:00:00'
         assert trace.customdata[0][1][6] == '01:00:00'
@@ -108,8 +108,8 @@ def test_rework_splits_same_person_and_preserves_saved_state_and_unique_returns(
         figure.to_json()
     # A person with no pending batches still has only one stack.
     figure = build_rework_ratio_chart(frame.iloc[:1], '2026-10-01', True)
-    assert list(figure.data[0].y) == ['Person']
-    assert list(figure.data[0].z[0]) == [1, 0, 0, 0]
+    assert list(figure.data[0].y[:-1]) == ['Person']
+    assert [cell[-1] for cell in figure.data[0].customdata[0]] == [1, 0, 0, 0]
 
 
 def test_missing_person_status_is_a_gap_and_filters_keep_status_evidence():
@@ -119,11 +119,11 @@ def test_missing_person_status_is_a_gap_and_filters_keep_status_evidence():
     frame = batch_ratios(batches, [], '2026-10-01', '2026-10-13', lambda b: b['username'])
     original = frame.copy(deep=True)
     figure = build_rework_ratio_chart(frame, '', True)
-    assert list(figure.data[0].y) == ['A', 'B']
-    assert list(figure.data[0].z[0]) == [2, 0, 0, 0]
-    assert list(figure.data[0].z[1]) == [1, 0, 0, 0]
+    assert list(figure.data[0].y[:-1]) == ['A', 'B']
+    assert [cell[-1] for cell in figure.data[0].customdata[0]] == [2, 0, 0, 0]
+    assert [cell[-1] for cell in figure.data[0].customdata[1]] == [1, 0, 0, 0]
     filtered = build_rework_ratio_chart(frame, '', True, ['B'], True)
-    assert list(filtered.data[0].y) == ['B']
+    assert list(filtered.data[0].y[:-1]) == ['B']
     assert 'Completed: 00:00:00' in filtered.data[0].customdata[0][0][10]
     assert 'Pending approvals: 01:00:00' in filtered.data[0].customdata[0][0][10]
     pd.testing.assert_frame_equal(frame, original)

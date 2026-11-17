@@ -55,7 +55,8 @@ def test_current_queue_cache_expires_and_force_refresh_removes_submissions():
         assert dm.fetch_all_assigned_tasks_live()['Aditya']['backlog_dur'] == 60
         dm.fetch_all_assigned_tasks_live()
         assert fetch.call_count == 1
-        dm._current_queue_cache['slice_assigned'] = (0, dm._current_queue_cache['slice_assigned'][1])
+        # Zero seconds can still be inside the TTL on a recently booted CI runner.
+        dm._current_queue_cache['slice_assigned'] = (float('-inf'), dm._current_queue_cache['slice_assigned'][1])
         assert dm.fetch_all_assigned_tasks_live() == {}
         assert dm.fetch_all_assigned_tasks_live(force_refresh=True) == {}
         assert fetch.call_count == 3

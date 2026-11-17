@@ -46,17 +46,67 @@ def build_review_workload_donut(frame, is_dark=True):
 
 
 @safe_chart(height=340)
-def build_approval_progression(payload, dates, selected_users=None, is_dark=True, completion=None):
-    """Three nested approval stages for the same dated *batch cohort*.
+def build_approval_progression(payload, dates, selected_users=None, is_dark=True,
+                               completion=None, unit='Batches'):
+    """Compare only like-for-like quantities.
 
-    Values are unique batches by latest known outcome, not task completions
-    and not independently summed review-event durations. The separate
-    completed-hours chart remains the authoritative period task metric.
-    The optional completion argument is retained for existing callers only.
+    Hours: only the exact-range source-date Completed video duration is known.
+    The selected dates lack auditable per-stage approval timestamps for
+    Leader/Auditor. They are shown as unavailable, never inferred from a batch's
+    original duration. Admin completion is explicitly labelled as source status,
+    not a claim about the Admin action timestamp.
+
+    Batches: nested *current* batch-stage counts for one batch-date cohort.
+    No original batch durations are exposed as approval hours.
     """
+    from slicing_dashboard.plots.completed_hours_heatmap import completion_total
     from slicing_dashboard.reporting.approval_funnel import prepare_funnel, STAGES
+    if unit not in ('Hours', 'Batches'):
+        raise ValueError('Unknown approval progression unit')
     if selected_users == []:
         return state_figure('No users selected.', is_dark, 340)
+    theme = theme_ctx(is_dark)
+    colors = REVIEW_COLORS if is_dark else ['#165a50', '#78b844', '#8b5cf6']
+    if unit == 'Hours':
+        seconds = completion_total(completion, selected_users)
+        if seconds is None:
+            return state_figure('Verified completed hours unavailable for this period. '
+                                'Batch video duration is not substituted.', is_dark, 340)
+        figure = go.Figure(go.Bar(
+            y=['Admin completed'], x=[seconds / 3600], orientation='h',
+            marker={'color': colors[2]}, width=.45,
+            text=[format_seconds(seconds, compact=True)], textposition='outside',
+            customdata=[format_seconds(seconds)],
+            hovertemplate='<b>Completed video · Admin status</b><br>'
+                          '%{customdata}<br>Exact source-date range'
+                          '<br>Not a dated Admin approval event<extra></extra>',
+        ))
+        for stage, y in [('Leader approval', .80), ('Auditor approval', .54)]:
+            figure.add_annotation(text=f'{stage} hours: unavailable', x=.02, y=y,
+                xref='paper', yref='paper', xanchor='left', showarrow=False,
+                font={'size': 11, 'color': theme['font_color']})
+        snapshot_note = (f"<br>Saved through {completion.get('end', 'unknown date')}; not live"
+                         if completion.get('is_snapshot') else '')
+        figure.update_layout(
+            template=theme['template'], height=340,
+            title={'text': 'Approval progression · verified hours',
+                   'subtitle': {'text': 'Completed video: ' + format_seconds(seconds) +
+                                '<br>Leader/Auditor dated approval hours unavailable' +
+                                snapshot_note, 'font': {'size': 10}}},
+            paper_bgcolor=theme['bg_color'], plot_bgcolor=theme['bg_color'],
+            font={'color': theme['font_color'], 'family': 'Inter, sans-serif'},
+            hoverlabel={'bgcolor': theme['hover_bg'], 'font_color': theme['hover_fg']},
+            margin={'l': 80, 'r': 110, 't': 80, 'b': 25},
+            showlegend=False,
+            xaxis={'title': 'Completed video hours', 'range': [0, max(seconds / 3600 * 1.25, 1)]},
+            yaxis={'categoryorder': 'array', 'categoryarray': ['Admin completed']},
+            uirevision='verified-completed-hours',
+            meta={'metric': 'source_date_completed_seconds', 'verified_seconds': seconds,
+                  'leader_hours': None, 'auditor_hours': None,
+                  'admin_completed_status_hours': seconds, 'unit': 'Hours',
+                  'saved_capture': bool(completion.get('is_snapshot'))},
+        )
+        return figure
     if not isinstance(payload, dict) or not payload.get('rows'):
         return state_figure('No saved batch approval cohort for this period.', is_dark, 340)
     scope = set(dates)
@@ -71,33 +121,24 @@ def build_approval_progression(payload, dates, selected_users=None, is_dark=True
         return state_figure('No batches have passed a review stage yet.', is_dark, 340)
     if any(left < right for left, right in zip(values, values[1:])):
         raise ValueError('Approval stages do not form a nested batch cohort')
-    descriptions = []
-    for stage, count in zip(STAGES, values):
-        metrics = totals[stage]['Approved']
-        hours = (format_seconds(metrics['seconds'])
-                 if not metrics['missing'] else 'Incomplete duration evidence')
-        descriptions.append([f'{count} currently recorded batch-stage outcomes', hours])
-    theme = theme_ctx(is_dark)
-    colors = REVIEW_COLORS if is_dark else ['#165a50', '#78b844', '#8b5cf6']
     figure = go.Figure(go.Funnel(
         y=list(STAGES), x=values, orientation='h',
         texttemplate='%{value} batches', textposition='inside',
-        customdata=descriptions,
         marker={'color': colors, 'line': {'width': 0}},
         connector={'line': {'color': 'rgba(148,163,184,.22)', 'width': 1}},
-        hovertemplate='<b>%{y} (latest batch status)</b><br>%{x} batches'
-                      '<br>Original cohort video duration: %{customdata[1]}'
-                      '<br>Not dated Admin-approved or completed-task hours<extra></extra>',
+        hovertemplate='<b>%{y} · latest status</b><br>%{x} batches'
+                      '<br>Not dated approval hours<extra></extra>',
     ))
     figure.update_layout(template=theme['template'], height=340,
-        title={'text': 'Batch stage progression',
-               'subtitle': {'text': 'Current batch-status cohort · NOT dated approvals'
-                           '<br>Use Completed Hours for verified period output',
+        title={'text': 'Batch stage progression · counts',
+               'subtitle': {'text': 'Current batch-status cohort · not dated approvals'
+                            '<br>Use Hours for exact-range completed video',
                             'font': {'size': 10}}},
         paper_bgcolor=theme['bg_color'], plot_bgcolor=theme['bg_color'], showlegend=False,
         font={'color': theme['font_color'], 'family': 'Inter, sans-serif'},
         hoverlabel={'bgcolor': theme['hover_bg'], 'font_color': theme['hover_fg']},
         margin={'l': 78, 'r': 20, 't': 73, 'b': 24},
-        xaxis={'visible': False}, yaxis={'automargin': True}, uirevision='approval-cohort-v2',
-        meta={'metric': 'distinct_batch_stage_count', 'stage_counts': values})
+        xaxis={'visible': False}, yaxis={'automargin': True}, uirevision='approval-cohort-v3',
+        meta={'metric': 'distinct_batch_stage_count', 'stage_counts': values,
+              'unit': 'Batches'})
     return figure
