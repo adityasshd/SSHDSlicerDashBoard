@@ -46,6 +46,9 @@ def submitted_video_output(day, selected_users=None, expected_date=None):
         return {'available': False, 'date': actual_date,
                 'reason': 'Submission rows are missing'}
     selected = set(selected_users) if selected_users is not None else None
+    if selected is not None and not selected:
+        return {'available': False, 'date': actual_date,
+                'reason': 'No users selected'}
     sums = {key: 0.0 for key, _, _, _ in BUCKETS}
     counts = {key: 0 for key, _, _, _ in BUCKETS}
     count_known = {key: True for key, _, _, _ in BUCKETS}
