@@ -1066,11 +1066,12 @@ class DataManager:
 
             # Ensure batch return history is up-to-date to join return counts
             returns = self.sync_batch_returns(force_refresh=force_refresh)
-            returns_by_batch_id = defaultdict(int)
-            for r in returns:
-                bid = r.get("batch_id")
-                if bid:
-                    returns_by_batch_id[bid] += 1
+            from slicing_dashboard.processing.batch_return_history import reconcile_batch_returns
+            observed = reconcile_batch_returns([], returns)
+            returns_by_batch_id = {
+                row['batch_id']: row['observed_return_count']
+                for row in observed['records']
+            }
 
             # Determine which dates in [start_date, end_date] require fetching
             from datetime import datetime as dt_cls
@@ -1173,6 +1174,20 @@ class DataManager:
             self._batch_source_error = type(e).__name__
             print(f"Warning: Failed to sync batches master: {e}")
             return self._batches_master_cache
+
+    def get_batch_return_history_report(self, through_date: str | None = None) -> dict:
+        """Read-only observed return counts and history, never inferred labor."""
+        from slicing_dashboard.processing.batch_return_history import reconcile_batch_returns
+        report = reconcile_batch_returns(
+            self._batches_master_cache.values(),
+            self._batch_returns_cache, through_date=through_date,
+        )
+        report['source_fresh'] = not bool(getattr(self, '_returns_source_error', None))
+        report['source_error'] = (
+            'ReturnHistorySourceIncomplete'
+            if getattr(self, '_returns_source_error', None) else None
+        )
+        return report
 
     def get_batch_rework_ratio_df(self, start_date: str, end_date: str, force_refresh: bool = False) -> pd.DataFrame:
         """Recorded returns per submitted batch; never infer batches from task hours."""
