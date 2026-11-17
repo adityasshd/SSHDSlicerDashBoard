@@ -120,3 +120,16 @@ def test_manager_readonly_report_preserves_existing_cache_and_staleness():
     assert failed['source_error'] == 'ReturnHistorySourceIncomplete'
     assert failed['records'][0]['observed_return_count'] == 1
     assert failed['complete_lifetime_history'] is False
+
+
+def test_genuine_distinct_return_ids_at_same_timestamp_are_not_collapsed():
+    # A real source ID takes precedence if timestamp resolution is coarse.
+    one = event('B1', '2026-11-17T08:00:00Z', viewer=1, identifier='return-first')
+    two = event('B1', '2026-11-17T08:00:00Z', viewer=1, identifier='return-second')
+    report = reconcile_batch_returns([batch('B1', count=2)], [one, two])
+    assert report['summary']['distinct_observed_returns'] == 2
+    assert report['records'][0]['ledger_discrepancy'] == 0
+    ratios = batch_ratios([batch('B1', count=2)], [one, two],
+                          '2026-11-17', '2026-11-17',
+                          lambda row: row['canonical_user'])
+    assert ratios.iloc[0]['2 Reworks'] == 1
