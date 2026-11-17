@@ -37,13 +37,94 @@ def fixture_manager():
     manager.get_detailed_pending_assigned_df.return_value = frame
     manager.fetch_dashboard_data.return_value = {'breakdowns': {'slice_funnel': []}}
     manager.get_summary_kpis.return_value = {**{key: 1 for key in SUM_FIELDS},
-        'approved_pct': 0, 'error_pct': 0, 'rework_pct': 0, 'completed_pct': 0,
+        'approved_pct': 0, 'error_pct': 0, 'rework_pct': 0,
         'assignable_duration': 0, 'assignable_count': 0}
     return manager
 
 
 def request_for(identity='one'):
     return {'id': identity, 'start': '2026-10-01', 'end': '2026-10-08', 'force': False, 'pending_force': False}
+
+
+@pytest.mark.parametrize('kind', ['pending', 'rework', 'assigned'])
+def test_removed_count_controls_do_not_affect_packet_rendering(kind):
+    from slicing_dashboard.pages.dashboard_panels import GRAPH_IDS
+    namespace, manager = application_namespace()
+    source = fixture_manager()
+    source.get_pending_review_df.return_value = pd.DataFrame([
+        dict(User='Riya', Stage='Pending Leader', Duration=5400, Count=3)])
+    source.get_detailed_pending_assigned_df.return_value = pd.DataFrame([
+        dict(User='Riya', Stage='New Assigned', Duration=5400, Count=3)])
+    source.get_batch_rework_ratio_df.return_value = pd.DataFrame([
+        {'User': 'Riya', 'Completion State': 'Pending approvals', 'Total Batches': 3, '1 Rework': 3, 'Tier Duration (hrs)': {'1 Rework': 1.5}}])
+    request = request_for()
+    packet = {**capture_panel(source, kind, request['start'], request['end']), 'request_id': request['id']}
+    key = next(key for key in namespace['app'].callback_map if GRAPH_IDS[kind]+'.figure' in key and '@' not in key)
+    callback = namespace['app'].callback_map[key]
+    assert not any(item['id'].endswith('-counts') for item in callback['inputs'])
+    selector = ['All'] if kind == 'rework' else []
+    figure, _, overview, *extra, ready, _ = callback['callback'].__wrapped__(
+        request, packet, None, 0, *selector, None, '/', {'request_id': request['id']})
+    assert ready is dash.no_update
+    assert not any(' / ' in item.text for item in figure.layout.annotations)
+    assert '01:30:00' in json.dumps(overview, cls=__import__('plotly').utils.PlotlyJSONEncoder)
+    manager.get_batch_rework_ratio_df.assert_not_called()
+    manager.get_pending_review_df.assert_not_called()
+    manager.get_detailed_pending_assigned_df.assert_not_called()
+
+
+@pytest.mark.parametrize('theme', [0, 1])
+def test_main_dashboard_serves_new_overview_and_rework_metric_through_real_callbacks(theme):
+    namespace, manager = application_namespace()
+    app = namespace['app']
+    source = fixture_manager()
+    source.get_batch_rework_ratio_df.return_value = pd.DataFrame([
+        {'User': 'Riya', 'Completion State': 'Pending approvals', 'Total Batches': 1, 'No Rework': 1, 'Tier Duration (hrs)': {'No Rework': 2.5}},
+    ])
+    summary = capture_panel(source, 'summary', '2026-10-01', '2026-10-08')
+    rework = capture_panel(source, 'rework', '2026-10-01', '2026-10-08')
+    client = app.server.test_client()
+    assert client.get('/').status_code == 200
+    assert client.get('/assets/kpi_overview.css').status_code == 200
+
+    values = {'dashboard-panel-request': request_for(),
+              'dashboard-saved-summary': {**summary, 'request_id': 'one'},
+              'dashboard-live-summary': None, 'dashboard-ready-summary': None,
+              'selected-users-store': ['Riya'], 'theme-toggle': theme, 'report-location': '/'}
+
+    def update(key):
+        callback = app.callback_map[key]
+        outputs = callback['output']
+        output_specs = ([{'id': out.component_id, 'property': out.component_property} for out in outputs]
+                        if isinstance(outputs, list) else
+                        {'id': outputs.component_id, 'property': outputs.component_property})
+        response = client.post('/_dash-update-component', json={
+            'output': key, 'outputs': output_specs,
+            'inputs': [{**item, 'value': values[item['id']]} for item in callback['inputs']],
+            'state': [{**item, 'value': values[item['id']]} for item in callback['state']],
+            'changedPropIds': ['dashboard-panel-request.data'],
+        })
+        assert response.status_code == 200, response.get_data(as_text=True)
+        return response.get_json()['response']
+
+    key = next(key for key in app.callback_map if 'dashboard-ready-summary.data' in key)
+    result = update(key)
+    assert 'kpi-secondary' in result and 'kpi-cards' not in result
+    # All overview slots are mounted once in the static layout. Summary updates
+    # never replace the rework, current review or current assignment targets.
+    from tests.test_daily_report_page import components
+    ids = [getattr(node, 'id', None) for node in components(app.layout)]
+    for identity in ('kpi-overview', 'kpi-rework-breakdown', 'kpi-review', 'kpi-assigned'):
+        assert ids.count(identity) == 1
+    values.update({'dashboard-saved-rework': {**rework, 'request_id': 'one'},
+                   'dashboard-live-rework': None, 'dashboard-ready-rework': None,
+                   'rework-completion-state': 'All', 'dashboard-saved-completion': None, 'dashboard-live-completion': None})
+    rework_key = next(key for key in app.callback_map if 'dashboard-ready-rework.data' in key)
+    content = update(rework_key)['kpi-rework-breakdown']['children']
+    assert '02:30:00' in json.dumps(content)
+    manager.fetch_dashboard_data.assert_not_called()
+    manager.get_summary_kpis.assert_not_called()
+    manager.get_batch_rework_ratio_df.assert_not_called()
 
 
 def test_saved_request_and_render_do_no_source_reads_and_have_no_live_input():
@@ -65,9 +146,9 @@ def test_saved_request_and_render_do_no_source_reads_and_have_no_live_input():
     assert saved['captured_at'] == packet['captured_at']
     paint = next(value for key, value in callbacks.items() if 'individual-chart.figure' in key and '@' not in key)
     assert not any(item['id'].startswith('dashboard-live-') for item in paint['inputs'])
-    figure, status, ready, _ = paint['callback'].__wrapped__(request, saved, ['Riya'], 0, None, '/', None)
+    figure, status, overview, ready, _ = paint['callback'].__wrapped__(request, saved, ['Riya'], 0, None, '/', None)
     assert ready['request_id'] == request['id']
-    assert len(figure.data) == 1 and 'Checking latest data' in status
+    assert len(figure.data) == 1 and status == '' and overview == '01:00:00'
     manager.fetch_dashboard_data.assert_not_called()
     manager.get_user_breakdown_df.assert_not_called()
     manager._save_snapshot.assert_not_called()
@@ -124,9 +205,9 @@ def test_range_capture_waits_for_first_paint_and_selection_does_not_recapture():
         capture['callback'].__wrapped__({'request_id': 'old-range'}, request)
     manager.get_user_breakdown_df.assert_not_called()
     paint = next(value for key, value in callbacks.items() if 'individual-chart.figure' in key and '@' not in key)
-    _, _, ready, painted = paint['callback'].__wrapped__(request, None, ['Riya'], 0, None, '/', None)
+    _, _, _, ready, painted = paint['callback'].__wrapped__(request, None, ['Riya'], 0, None, '/', None)
     assert ready['request_id'] == painted['request_id'] == 'new-range'
-    _, _, repeat, _ = paint['callback'].__wrapped__(request, None, [], 1, None, '/', ready)
+    _, _, _, repeat, _ = paint['callback'].__wrapped__(request, None, [], 1, None, '/', ready)
     assert repeat is dash.no_update
 
 
@@ -136,8 +217,8 @@ def test_live_result_is_reapplied_after_a_late_selection_paint():
     live = next(value for key, value in callbacks.items() if 'individual-chart.figure@' in key)
     assert {'id': 'dashboard-painted-completion', 'property': 'data'} in live['inputs']
     packet = {**capture_panel(fixture_manager(), 'completion', '2026-10-01', '2026-10-08'), 'request_id': 'one'}
-    figure, status = live['callback'].__wrapped__(packet, {'request_id': 'one'}, request_for(), None, ['Riya'], 0, '/')
-    assert len(figure.data) == 1 and status.startswith('Captured ')
+    figure, status, overview = live['callback'].__wrapped__(packet, {'request_id': 'one'}, request_for(), None, ['Riya'], 0, '/')
+    assert len(figure.data) == 1 and status == '' and overview == '01:00:00'
 
 
 def test_completion_finishes_while_rework_is_still_reading():
@@ -291,3 +372,27 @@ def test_saved_assigned_panel_preserves_both_dates_and_return_color():
     assert bar.marker.color[0] == '#fb7185'
     assert '2026-10-01' in bar.customdata[0][4]
     assert 'Returned on: 2026-10-13' in bar.customdata[0][6]
+
+
+@pytest.mark.parametrize('selected,expected', [(None, 9000), (['Riya'], 5400), ([], 0)])
+def test_review_overview_heatmap_and_donut_share_a_filtered_atomic_response(selected, expected):
+    from tests.test_daily_report_page import payload_text
+    from slicing_dashboard.plots.theme import format_seconds
+    namespace, _ = application_namespace()
+    source = fixture_manager()
+    source.get_pending_review_df.return_value = pd.DataFrame([
+        dict(User='Riya', Stage='Pending Leader', Duration=3600, Count=2),
+        dict(User='Riya', Stage='Pending Admin', Duration=1800, Count=1),
+        dict(User='Priya', Stage='Pending Auditor', Duration=3600, Count=3),
+    ])
+    request = request_for()
+    packet = {**capture_panel(source, 'pending', request['start'], request['end']), 'request_id': request['id']}
+    callback = next(value for key, value in namespace['app'].callback_map.items()
+                    if 'dashboard-ready-pending.data' in key)['callback'].__wrapped__
+    matrix, _, overview, donut, _, _ = callback(request, packet, selected, 0, None, '/', None)
+    assert format_seconds(expected) in payload_text(overview)
+    if expected:
+        assert sum(matrix.layout.meta["column_totals"]) * 3600 == expected
+        assert sum(donut.data[0].values) == expected
+    else:
+        assert not matrix.data and not donut.data

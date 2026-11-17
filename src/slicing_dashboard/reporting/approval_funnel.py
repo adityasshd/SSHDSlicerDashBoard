@@ -94,7 +94,7 @@ def cohort_records(events, batches, resolve, covered_dates=()):
 
 
 def prepare_funnel(payload, dates, selected=None):
-    selected = set(selected) if selected else None
+    selected = set(selected) if selected is not None else None
     covered = set(payload.get('covered_dates', []))
     daily = {day: {'date': day, **{stage.lower() + '_seconds': 0. if day in covered else None
                                  for stage in STAGES}} for day in dates}
@@ -102,7 +102,7 @@ def prepare_funnel(payload, dates, selected=None):
                       ('Approved', 'Rejected / returned', 'Awaiting review', 'Not reached', 'Unknown')}
               for stage in STAGES}
     for batch in payload.get('rows', []):
-        if batch['date'] not in daily or (selected and batch['member'] not in selected):
+        if batch['date'] not in daily or (selected is not None and batch['member'] not in selected):
             continue
         # One common duration per batch ensures Admin <= Auditor <= Leader.
         # Missing durations leave the whole cohort date unknown at every stage.

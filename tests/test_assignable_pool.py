@@ -4,8 +4,14 @@ import pytest
 
 from slicing_dashboard.data_manager import DataManager
 from slicing_dashboard.processing.assignable_pool import parse_inventory
-from slicing_dashboard.plots.kpi_cards import build_kpi_layout
-from tests.test_daily_report_page import payload_text
+from slicing_dashboard.plots import build_kpi_layout
+from tests.test_daily_report_page import payload_text, components
+
+
+def pool_metric(layout):
+    return next(component for component in components(layout)
+                if getattr(component, 'className', '') == 'kpiu-metric'
+                and component.children[0].children.startswith('Unassigned videos'))
 
 
 def inventory(normal=0, urgent=0, normal_count=0, urgent_count=0):
@@ -95,7 +101,7 @@ def test_kpis_and_detail_share_one_current_pool_despite_stale_overview_and_filte
     args, kwargs = dm.scraper._client.get.call_args
     assert args[0].endswith('/api/slice/pool-inventory') and 'params' not in kwargs
     cards = build_kpi_layout(kpis, {'pending_assign': {'duration_seconds': 99999}}, True)
-    card = payload_text(cards[2])
+    card = payload_text(pool_metric(cards))
     assert '00:00' in card and 'Currently assignable' in card
 
 
@@ -105,8 +111,8 @@ def test_pool_failure_only_marks_pool_unavailable_and_does_not_fabricate_zero():
     kpis = dm.get_summary_kpis('2026-10-01', '2026-10-08')
     assert kpis['assignable_duration'] is None and kpis['total_approved_duration'] == 0
     cards = build_kpi_layout(kpis, {'pending_assign': {'duration_seconds': 99999}}, True)
-    assert 'Unavailable' in payload_text(cards[2])
-    assert 'Pool unavailable' in payload_text(cards[2])
+    assert 'Unavailable' in payload_text(pool_metric(cards))
+    assert 'Pool unavailable' in payload_text(pool_metric(cards))
     frame = dm.get_detailed_pending_assigned_df(include_pending=False)
     assert frame[frame['User'] == 'Assignable Pool'].empty
     assert frame.attrs['assignable_error'] == 'ConnectionError'

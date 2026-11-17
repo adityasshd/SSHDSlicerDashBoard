@@ -10,7 +10,6 @@ from slicing_dashboard.runtime import configure_numeric_threads, ReadExecutor as
 configure_numeric_threads()
 
 import dash
-import sys
 import dash_bootstrap_components as dbc
 import pandas as pd
 from functools import wraps
@@ -38,6 +37,7 @@ from slicing_dashboard.plots.tables import register_duration_table_callbacks
 from slicing_dashboard.plots.guardrails import state_figure
 from slicing_dashboard.management.ui import layout_settlement_management, layout_user_mapping, register_management_callbacks
 from slicing_dashboard.management.periods import today_iso
+from slicing_dashboard.reporting.settlement_snapshots import manager_snapshot, period_for_range, period_for_selection
 from slicing_dashboard.processing.daily_work import EXCLUDED
 from slicing_dashboard.pages.components import add_reporting_shell, contain_graphs
 from slicing_dashboard.pages.dashboard_panels import panel_stores, register_dashboard_panels
@@ -230,13 +230,13 @@ app.layout = html.Div(
                 # ── Server Status Offline Banner ─────────────────────
                 html.Div(id="server-status-banner"),
 
-                # ── KPI Cards (flex grid — all 7 in one row) ─────────
+                # ── Unified KPI overview ────────────────────────────
                 html.Div([
                     html.Div([html.Span('OVERVIEW', className='dashboard-eyebrow'),
                               html.H1('Slicing performance')]),
                     html.Span('Team activity', className='dashboard-period-badge'),
                 ], className='dashboard-heading'),
-                html.Div(id="kpi-cards", className="kpi-grid mb-2"),
+                html.Div(build_kpi_layout({}, {}, True), id="kpi-cards", className="kpi-overview-container mb-2"),
 
                 dcc.Store(id="dashboard-trend-store"),
                 html.Section([
@@ -276,70 +276,33 @@ app.layout = html.Div(
                     n_intervals=0,
                 ),
 
-                # ── Chart row 1: Rework Ratio (50%) + Completed Duration (50%) ─────
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            dcc.Graph(
-                                id="rework-ratio-chart",
-                                figure=_initial_fig,
-                                config=_graph_cfg,
-                                className="glass-panel p-1 rounded shadow-sm chart-compact",
-                                style=_graph_style,
-                            ),
-                            width=12,
-                            lg=6,
-                            className="mb-2 mb-lg-0",
-                        ),
-                        dbc.Col(
-                            dcc.Graph(
-                                id="individual-chart",
-                                figure=_initial_fig,
-                                config=_graph_cfg,
-                                className="glass-panel p-1 rounded shadow-sm chart-compact",
-                                style=_graph_style,
-                            ),
-                            width=12,
-                            lg=6,
-                            className="mb-2 mb-lg-0",
-                        ),
-                    ],
-                    className="mb-2",
-                    style={"display": "flex", "alignItems": "stretch"},
-                ),
+                # Completed output and the shared team filter stay together.
+                dbc.Row([
+                    dbc.Col(dcc.Graph(
+                        id="individual-chart", figure=_initial_fig, config=_graph_cfg,
+                        className="glass-panel p-1 rounded shadow-sm chart-compact",
+                        style=_graph_style,
+                    ), width=12, lg=9),
+                    dbc.Col(dcc.Graph(
+                        id="universal-legend", figure=_initial_fig, config=_graph_cfg,
+                        className="glass-panel p-1 rounded shadow-sm chart-compact",
+                        style=_graph_style,
+                    ), width=12, lg=3),
+                ], className="dashboard-chart-row dashboard-completion-row"),
 
-                # ── Chart row 2: Pending reviews + Legend ───────────
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            dcc.Graph(
-                                id="pending-chart",
-                                figure=_initial_fig,
-                                config=_graph_cfg,
-                                className="glass-panel p-1 rounded shadow-sm chart-compact",
-                                style=_graph_style,
-                            ),
-                            width=12,
-                            lg=9,
-                            className="mb-2 mb-lg-0",
-                        ),
-                        dbc.Col(
-                            dcc.Graph(
-                                id="universal-legend",
-                                figure=_initial_fig,
-                                config=_graph_cfg,
-                                className="glass-panel p-1 rounded shadow-sm chart-compact",
-                                style=_graph_style,
-                            ),
-                            width=12,
-                            lg=3,
-                            className="mb-2 mb-lg-0",
-                        ),
-                    ],
-                    className="mb-2",
-                    style={"display": "flex", "alignItems": "stretch"},
-                ),
-
+                # Comparable matrices share a row and the same responsive height.
+                dbc.Row([
+                    dbc.Col(dcc.Graph(
+                        id="rework-ratio-chart", figure=_initial_fig, config=_graph_cfg,
+                        className="glass-panel p-1 rounded shadow-sm chart-compact",
+                        style=_graph_style,
+                    ), width=12, lg=6),
+                    dbc.Col(dcc.Graph(
+                        id="pending-chart", figure=_initial_fig, config=_graph_cfg,
+                        className="glass-panel p-1 rounded shadow-sm chart-compact",
+                        style=_graph_style,
+                    ), width=12, lg=6),
+                ], className="dashboard-chart-row dashboard-matrix-row"),
                 # ── Chart row 3: Assigned & Rework by ID (Dynamic Height) ──
                 dbc.Row(
                     [
@@ -886,6 +849,17 @@ def quick_filters(btn_today, dropdown_val, n_intervals, selected_start, selected
     raise dash.exceptions.PreventUpdate
 
 
+@app.callback(
+    Output("date-from", "disabled"), Output("date-to", "disabled"),
+    Output("btn-today", "disabled"),
+    Input("settlement-dropdown", "value"),
+)
+def freeze_settled_period_filters(period_value):
+    """Closed settlements are exact snapshots, not arbitrary date slices."""
+    frozen = period_for_selection(dm.get_available_periods(), period_value) is not None
+    return frozen, frozen, frozen
+
+
 def _build_status_badge(status: dict):
     if viewer_mode():
         return html.Span('Saved reports', className='badge bg-secondary me-2',
@@ -1242,6 +1216,16 @@ def load_dashboard_trend(end_date, n_clicks, n_intervals, pathname, start_date=N
     options = {'force_refresh': trigger in ("refresh-btn", "auto-refresh-interval")}
     if start_date:
         options['start_date'] = start_date
+        closed = period_for_range(dm.get_available_periods(), start_date, end_date)
+        if closed is not None:
+            try:
+                frozen = manager_snapshot(dm, start_date, end_date)
+            except (ValueError, KeyError, TypeError):
+                return {'validation_error': 'This settlement snapshot is damaged or unreadable.'}
+            if frozen is None:
+                return {'validation_error': 'No verified historical snapshot is available for this settlement.'}
+            return {**frozen['trend'], 'request_id': uuid4().hex,
+                    'frozen': True, 'force_refresh': False}
     try:
         return {**dm.get_dashboard_trend_data(min(end_date, today_iso()), **options),
                 'request_id': uuid4().hex, 'force_refresh': options['force_refresh']}
@@ -1321,12 +1305,10 @@ def render_return_reasons_chart(start_date, end_date, selected_users, theme_clic
     )
 
 
-def run_local(port=8050):
-    # Werkzeug's Windows process reloader can close the serving thread's socket.
-    # Keep debug tools available and restart manually after Python edits on Windows.
-    reload_code = sys.platform != 'win32'
-    app.run(debug=True, dev_tools_ui=False, port=port, use_reloader=reload_code,
-            dev_tools_hot_reload=reload_code)
+def run_local(port=8000, *, reload=True):
+    """Reload local Python code and browser assets on every supported platform."""
+    app.run(debug=True, dev_tools_ui=False, port=port, use_reloader=reload,
+            reloader_type='stat', dev_tools_hot_reload=reload)
 
 
 if __name__ == "__main__":
