@@ -11,6 +11,24 @@ from datetime import date
 from slicing_dashboard.processing.daily_work import instant
 
 
+def occurrence_identity(entry, stamp):
+    """Prefer real event IDs; collapse only Collector-generated viewer IDs.
+
+    The Collector synthesizes ID as `user_id_batch_id_raw_returned_at`.
+    Two users can see one batch return in their own feed. An independently
+    supplied event ID, however, may distinguish two genuine occurrences
+    even when timestamp precision is too low.
+    """
+    batch_id = str(entry.get('batch_id') or '').strip()
+    source_id = entry.get('event_id')
+    viewer = entry.get('user_id')
+    raw_time = entry.get('returned_at')
+    synthetic = f'{viewer}_{batch_id}_{raw_time}'
+    if source_id and str(source_id) != synthetic:
+        return batch_id, 'event', str(source_id)
+    return batch_id, 'timestamp', stamp.isoformat()
+
+
 def reconcile_batch_returns(batches, returns, *, through_date=None):
     """Reconcile explicit return events against latest saved batch ledger.
 
@@ -53,12 +71,9 @@ def reconcile_batch_returns(batches, returns, *, through_date=None):
         if through_date is not None and stamp.date().isoformat() > through_date:
             later += 1
             continue
-        # The upstream feed exposes a return timestamp, not a documented
-        # globally stable event ID. Our existing event_id is synthesized with
-        # the *viewer's* user ID. The same batch return can therefore occur in
-        # two operators' histories with different synthetic event IDs.
-        # Count one distinct batch+return-time occurrence, not one per viewer.
-        identity = (batch_id, stamp.isoformat())
+        # Preserve genuinely distinct upstream event identities, but collapse
+        # cross-viewer copies of the same synthetic return occurrence.
+        identity = occurrence_identity(entry, stamp)
         if identity in observed_ids:
             duplicates += 1
             continue
