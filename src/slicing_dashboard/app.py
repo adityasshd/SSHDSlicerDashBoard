@@ -353,7 +353,7 @@ app.layout = add_reporting_shell(app.layout, today_iso(), report_users(
     dm.user_mapping, dm._snapshot_payload,
     mapping_records=list(getattr(dm, 'user_mapping_full', {}).values())))
 app.layout = contain_graphs(app.layout)
-register_monthly_returns(app, dm)
+register_monthly_returns(app, dm, available_users)
 
 
 @app.callback(
