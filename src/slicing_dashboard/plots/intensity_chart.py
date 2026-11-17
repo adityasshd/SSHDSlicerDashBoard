@@ -44,38 +44,38 @@ def intensity_chart(users, categories, metrics, customdata, hovertemplate, title
             ))
         hover_colors.append(row_colors)
         hover_text_colors.append(row_text_colors)
-    # Plotly permits only one z-range for each Heatmap trace. Render one
-    # trace per category, each at its own zmax, so z stays in real hours and
-    # hover details / count annotations remain unchanged. A separate neutral
-    # Total trace below is deliberately not part of any column scale.
-    figure = go.Figure()
-    detail_users = users[:-1] if has_total else users
-    detail_custom = customdata[:-1] if has_total else customdata
-    detail_colors = hover_colors[:-1] if has_total else hover_colors
-    detail_text_colors = hover_text_colors[:-1] if has_total else hover_text_colors
-    for index, category in enumerate(categories):
-        colors = [[row[index]] for row in detail_colors]
-        text_colors = [[row[index]] for row in detail_text_colors]
-        figure.add_trace(go.Heatmap(
-            x=[category], y=detail_users,
-            z=[[row[index]] for row in colored_values],
-            customdata=[[row[index]] for row in detail_custom],
-            zmin=0, zmax=color_limits[index], colorscale=scale,
-            xgap=4, ygap=4, showscale=False,
-            hovertemplate=hovertemplate, hoverongaps=True,
-            hoverlabel={'bgcolor': colors, 'bordercolor': colors,
-                        'font': {'size': 12, 'color': text_colors}},
-            name=category,
-        ))
+    # One aligned matrix is essential: Plotly's per-trace auto-cell widths
+    # for single-column Heatmaps and a single-row Total trace can detach the
+    # colored rectangles from the category labels (visible production bug).
+    # Independently normalize *only the color coordinate*, preserving exact
+    # real hours at the last customdata position and in column_totals.
+    normalized = [
+        [(float(value) / color_limits[index] if value is not None else None)
+         for index, value in enumerate(row)]
+        for row in values
+    ]
+    custom_with_raw_hours = [
+        [[*cell, value] for cell, value in zip(custom_row, raw_row)]
+        for custom_row, raw_row in zip(customdata, values)
+    ]
     if has_total:
-        figure.add_trace(go.Heatmap(
-            x=categories, y=users[-1:], z=values[-1:], customdata=customdata[-1:],
-            colorscale=[[0, neutral], [1, neutral]], showscale=False, xgap=4, ygap=4,
-            hovertemplate=hovertemplate, hoverongaps=True,
-            hoverlabel={'bgcolor': neutral, 'bordercolor': neutral,
-                        'font': {'color': theme['font_color']}},
-            name='Total',
-        ))
+        # Reserve the negative color-space for an explicit neutral Total row,
+        # rather than introducing a second trace with mismatched cell bounds.
+        normalized[-1] = [-1.0] * len(categories)
+        display_scale = [
+            [0.0, neutral], [0.4999, neutral],
+            [0.5, scale[0][1]], [0.75, scale[1][1]], [1.0, scale[2][1]],
+        ]
+    else:
+        display_scale = scale
+    figure = go.Figure(go.Heatmap(
+        x=categories, y=users, z=normalized, customdata=custom_with_raw_hours,
+        zmin=-1 if has_total else 0, zmax=1, colorscale=display_scale,
+        xgap=4, ygap=4, showscale=False,
+        hovertemplate=hovertemplate, hoverongaps=True,
+        hoverlabel={'bgcolor': hover_colors, 'bordercolor': hover_colors,
+                    'font': {'size': 12, 'color': hover_text_colors}},
+    ))
     figure.update_layout(
         title={'text': title, 'subtitle': {
             'text': ((subtitle + ' · ') if subtitle else '') + 'Color intensity relative within each column',
@@ -90,6 +90,8 @@ def intensity_chart(users, categories, metrics, customdata, hovertemplate, title
         annotations=annotations, showlegend=False, hovermode='closest',
         meta={'intensity_matrix': True, 'show_counts': bool(show_counts),
               'color_scope': 'per_column',
+              'single_aligned_matrix': True,
+              'raw_hour_customdata_index': -1,
               'column_maxima': column_maxima,
               'column_totals': values[-1] if has_total else None},
     )
