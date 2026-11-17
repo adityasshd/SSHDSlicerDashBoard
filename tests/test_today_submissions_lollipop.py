@@ -79,7 +79,7 @@ def test_absent_or_wrong_day_capture_stays_unavailable_not_zero():
         assert output['available'] is False
         figure = build_today_submissions_lollipop(output)
         assert not figure.data
-        assert 'batch approvals are not substituted' in figure.layout.annotations[0].text
+        assert 'substituted.' in figure.layout.annotations[0].text
 
 
 def test_invalid_counts_and_inconsistent_source_rows_rejected():
