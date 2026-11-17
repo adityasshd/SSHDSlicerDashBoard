@@ -48,7 +48,7 @@ def test_latest_api_matches_every_stage_after_alias_mapping_and_remapping(source
     frame = pending_frame(dm)
     assert frame.set_index('Stage').Duration.to_dict() == {'Pending Leader': 5400, 'Pending Auditor': 0, 'Pending Admin': 23}
     figure = build_pending_chart(frame, True)
-    assert list(figure.data[0].z[0]) == [5400 / 3600, 0, 23 / 3600]
+    assert [cell[-1] for cell in figure.data[0].customdata[0]] == [5400 / 3600, 0, 23 / 3600]
     assert list(figure.data[0].x) == ['Leader', 'Auditor', 'Admin']
     assert frame.attrs['captured_at'] and not frame.attrs['pending_error']
     dm.user_mapping['alias'] = 'Other person'

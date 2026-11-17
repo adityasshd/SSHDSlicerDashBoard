@@ -101,9 +101,9 @@ def test_rework_toggle_callback_repaints_without_source_reads():
               "data": frame_payload(frame, "rework")}
     request = {"id": "r1", "start": "2026-11-01", "end": "2026-11-17"}
     fn = callback["callback"].__wrapped__
-    all_fig, _, _, _, _ = fn(request, packet, None, 0, "All", None, "/", None)
-    complete_fig, _, _, _, _ = fn(request, packet, None, 0, "Completed", None, "/", None)
-    pending_fig, _, _, _, _ = fn(request, packet, None, 0, "Pending approvals", None, "/", None)
+    all_fig, _, _, _, _ = fn(request, packet, None, 0, "All", None, None, None, "/", None)
+    complete_fig, _, _, _, _ = fn(request, packet, None, 0, "Completed", None, None, None, "/", None)
+    pending_fig, _, _, _, _ = fn(request, packet, None, 0, "Pending approvals", None, None, None, "/", None)
     assert list(all_fig.data[0].x) == [
         'No Rework', '1 Rework', '2 Reworks', '3+ Reworks']
     assert all(cell[-1] is not None for row in all_fig.data[0].customdata[:-1] for cell in row)

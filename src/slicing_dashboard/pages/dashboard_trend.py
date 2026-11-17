@@ -85,13 +85,13 @@ def register_dashboard_trend(app, manager, render, roster=None):
             raise dash.exceptions.PreventUpdate
         return render(live, users, theme, pathname)
 
-    def progression(data, live, users, theme, pathname):
+    def progression(data, live, users, theme, pathname, unit='Hours',
+                    panel_request=None, saved_completion=None, live_completion=None):
         if pathname not in (None, '/', '/dashboard'):
             raise dash.exceptions.PreventUpdate
         from slicing_dashboard.plots.overview_charts import build_approval_progression
+        from slicing_dashboard.pages.dashboard_panels import period_completion
         display = (live if matching_live(data, live) else data) or {}
-        # A missing daily efficiency observation must not erase a saved batch
-        # approval cohort. Derive the dates from the selected report range.
         try:
             start = date.fromisoformat(display['range_start'])
             end = date.fromisoformat(display['range_end'])
@@ -102,23 +102,49 @@ def register_dashboard_trend(app, manager, render, roster=None):
         except (KeyError, TypeError, ValueError):
             dates = []
         selection = users if users is not None and (roster is None or len(users) < len(roster)) else None
-        return build_approval_progression((display.get('approvals') or {}).get('funnel'),
-            dates, selection, (theme or 0) % 2 == 0)
+        # Only a completion packet for the *same* date range may supply the
+        # verified-hours pyramid. Never substitute a previous-period capture or
+        # the current batch ledger's whole-video duration.
+        exact = (panel_request and dates and
+                 panel_request.get('start') == dates[0] and
+                 panel_request.get('end') == dates[-1])
+        completed = (period_completion(panel_request, saved_completion, live_completion)
+                     if exact else {'available': False, 'rows': []})
+        return build_approval_progression(
+            (display.get('approvals') or {}).get('funnel'),
+            dates, selection, (theme or 0) % 2 == 0,
+            completion=completed, unit=unit or 'Hours')
 
     @app.callback(Output('approval-progression-chart', 'figure'),
-                  Input('dashboard-trend-store', 'data'), Input('selected-users-store', 'data'),
-                  Input('theme-toggle', 'n_clicks'), Input('report-location', 'pathname'),
-                  State('dashboard-trend-live', 'data'))
-    def paint_progression_saved(data, users, theme, pathname, live):
-        return progression(data, live, users, theme, pathname)
+                  Input('dashboard-trend-store', 'data'),
+                  Input('selected-users-store', 'data'),
+                  Input('theme-toggle', 'n_clicks'),
+                  Input('report-location', 'pathname'),
+                  Input('approval-progression-unit', 'value'),
+                  Input('dashboard-saved-completion', 'data'),
+                  Input('dashboard-live-completion', 'data'),
+                  State('dashboard-trend-live', 'data'),
+                  State('dashboard-panel-request', 'data'))
+    def paint_progression_saved(data, users, theme, pathname, unit,
+                                saved_completion, live_completion, live, panel_request):
+        return progression(data, live, users, theme, pathname, unit,
+                           panel_request, saved_completion, live_completion)
 
     @app.callback(Output('approval-progression-chart', 'figure', allow_duplicate=True),
-                  Input('dashboard-trend-live', 'data'), State('dashboard-trend-store', 'data'),
-                  State('selected-users-store', 'data'), State('theme-toggle', 'n_clicks'),
-                  State('report-location', 'pathname'), prevent_initial_call=True)
-    def paint_progression_live(live, data, users, theme, pathname):
+                  Input('dashboard-trend-live', 'data'),
+                  State('dashboard-trend-store', 'data'),
+                  State('selected-users-store', 'data'),
+                  State('theme-toggle', 'n_clicks'),
+                  State('report-location', 'pathname'),
+                  State('approval-progression-unit', 'value'),
+                  State('dashboard-panel-request', 'data'),
+                  State('dashboard-saved-completion', 'data'),
+                  State('dashboard-live-completion', 'data'), prevent_initial_call=True)
+    def paint_progression_live(live, data, users, theme, pathname, unit,
+                               panel_request, saved_completion, live_completion):
         if not matching_live(data, live):
             raise dash.exceptions.PreventUpdate
-        return progression(data, live, users, theme, pathname)
+        return progression(data, live, users, theme, pathname, unit,
+                           panel_request, saved_completion, live_completion)
 
     return paint_saved, capture, paint_live

@@ -63,8 +63,9 @@ def test_removed_count_controls_do_not_affect_packet_rendering(kind):
     callback = namespace['app'].callback_map[key]
     assert not any(item['id'].endswith('-counts') for item in callback['inputs'])
     selector = ['All'] if kind == 'rework' else []
+    completion_inputs = [None, None] if kind == 'rework' else []
     figure, _, overview, *extra, ready, _ = callback['callback'].__wrapped__(
-        request, packet, None, 0, *selector, None, '/', {'request_id': request['id']})
+        request, packet, None, 0, *selector, *completion_inputs, None, '/', {'request_id': request['id']})
     assert ready is dash.no_update
     assert not any(' / ' in item.text for item in figure.layout.annotations)
     assert '01:30:00' in json.dumps(overview, cls=__import__('plotly').utils.PlotlyJSONEncoder)

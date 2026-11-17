@@ -107,7 +107,7 @@ def test_metric_updates_with_chart_and_summary_never_replaces_it():
                     if 'dashboard-ready-rework.data' in key)
     paint = callback['callback'].__wrapped__
     request = {**REQUEST, 'start': '2026-10-01', 'end': '2026-10-07'}
-    _, _, content, _, _ = paint(request, packet(), None, 0, 'All', None, '/', None)
+    _, _, content, _, _ = paint(request, packet(), None, 0, 'All', None, None, None, '/', None)
     assert '15:00:00' in payload_text(content)
     assert not any(item['id'] == 'kpi-cards' for item in callback['inputs'])
     assert not any('kpi-cards.children' in key for key in callbacks)
