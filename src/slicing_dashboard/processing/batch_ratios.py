@@ -5,6 +5,7 @@ from datetime import date
 import pandas as pd
 
 from slicing_dashboard.processing.daily_work import instant
+from slicing_dashboard.processing.batch_return_history import occurrence_identity
 from slicing_dashboard.processing.pending_review import number
 
 
@@ -17,9 +18,7 @@ def batch_ratios(batches, returns, start, end, resolve):
         stamp = instant(row.get('returned_at'))
         if not batch or not stamp:
             continue
-        # The same return can appear in two operators' histories; the
-        # synthetic event_id includes the viewer and is not an occurrence ID.
-        identity = (batch, stamp.isoformat())
+        identity = occurrence_identity(row, stamp)
         if stamp.date().isoformat() <= end:
             recorded[batch].add(identity)
         if start <= stamp.date().isoformat() <= end:
