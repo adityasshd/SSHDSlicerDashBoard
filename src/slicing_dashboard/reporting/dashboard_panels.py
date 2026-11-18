@@ -4,12 +4,15 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from hashlib import sha256
 import json
+import logging
 from threading import RLock
 
 import pandas as pd
 
 from slicing_dashboard.management.periods import today_iso
 from slicing_dashboard.processing.daily_work import EXCLUDED
+
+log = logging.getLogger(__name__)
 
 KINDS = ('summary', 'completion', 'rework', 'assigned', 'pending')
 VERSION = 2
@@ -220,6 +223,7 @@ def capture_panel(manager, kind, start, end, force=False):
                     del panels[old]
         return packet
     except Exception as error:
-        # Do not print credentials/URLs or raw server responses. Expose only
-        # the category; the UI can distinguish incomplete queues from timeouts.
+        # The browser sees only the exception class. The server logs the
+        # traceback and panel kind so a 500 cannot become an unexplained zero.
+        log.exception('Dashboard panel capture failed: %s', kind)
         return {'available': False, 'error': type(error).__name__, 'started_at': started}
