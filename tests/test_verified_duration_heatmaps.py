@@ -205,3 +205,67 @@ def test_archived_completed_batch_duration_is_not_zeroed_by_unrelated_queues(mon
         Manager(), "2026-11-10", "2026-11-10", store, {"ab_test": "No Rework"})
     assert result["Aditya"]["No Rework"] == pytest.approx(3649)
     assert sum(result["Aditya"].values()) == pytest.approx(3649)
+
+
+
+def test_assigned_dates_are_categorical_not_numeric():
+    """Regression: UpdatedDate (ISO date or blank) previously failed checked_frame."""
+    from slicing_dashboard.reporting.dashboard_panels import frame_payload, panel_frame
+
+    row = {
+        "User": "Aditya", "ID": "SSHD-Adi", "Stage": "New Assigned",
+        "Duration": 3649.0, "Count": 65, "IDs": "SSHD-Adi",
+        "AssignedDate": "2026-11-10", "DaysAssigned": 8,
+        "AssignmentDateBasis": "Batch assignment date",
+        "ReturnedDate": "", "DaysReturned": 0,
+        "UpdatedDate": "2026-11-17", "DaysUpdated": 1,
+        "UpdateDateBasis": "Task update timestamp",
+    }
+    packet = frame_payload(pd.DataFrame([row]), "assigned")
+    restored = panel_frame({"data": packet})
+    assert restored.loc[0, "UpdatedDate"] == "2026-11-17"
+    assert restored.loc[0, "AssignedDate"] == "2026-11-10"
+    assert restored.loc[0, "Duration"] == pytest.approx(3649.)
+    assert restored.loc[0, "DaysUpdated"] == 1
+
+    blank_date = {**row, "UpdatedDate": "", "ReturnedDate": ""}
+    packet = frame_payload(pd.DataFrame([blank_date]), "assigned")
+    assert packet["records"][0]["UpdatedDate"] == ""
+
+
+def test_assigned_invalid_video_duration_still_rejected():
+    from slicing_dashboard.reporting.dashboard_panels import frame_payload
+
+    frame = pd.DataFrame([{
+        "User": "Aditya", "Stage": "New Assigned", "Duration": "invalid",
+        "Count": 1, "UpdatedDate": "2026-11-18",
+    }])
+    with pytest.raises(ValueError, match="Invalid chart values"):
+        frame_payload(frame, "assigned")
+
+
+def test_rework_render_panel_has_no_shadowed_chart_import(monkeypatch):
+    """Regression: local import assigned chart name only in the no-packet branch."""
+    from slicing_dashboard.pages import dashboard_panels as page
+
+    calls = []
+    dummy_figure = object()
+    monkeypatch.setattr(page, "choose_packet",
+                        lambda request, saved, live: (
+                            {"data": {"columns": ["User", "Completion State"],
+                                      "records": [{
+                                          "User": "Aditya",
+                                          "Completion State": "Pending approvals",
+                                      }]}}
+                            , "Captured"))
+    def plot(*args, **kwargs):
+        calls.append(kwargs)
+        return dummy_figure
+
+    monkeypatch.setattr(page, "build_rework_ratio_chart", plot)
+    figure, status = page.render_panel(
+        "rework", {"start": "2026-11-01", "end": "2026-11-18"},
+        None, None, None, 0, [], completion_state="Pending approvals")
+    assert figure is dummy_figure
+    assert status == "Captured"
+    assert calls[0]["completion_state"] == "Pending approvals"
