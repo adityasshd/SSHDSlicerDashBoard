@@ -35,7 +35,7 @@ def completion_total(completion, selected=None):
 
 
 @safe_chart
-def build_completed_hours_heatmap(completion, is_dark=True, selected=None):
+def build_completed_hours_heatmap(completion, is_dark=True, selected=None, compact=False):
     """One-source-date completion column, never inferred return tiers."""
     if not isinstance(completion, dict) or not completion.get('available'):
         return state_figure('Verified completed hours unavailable for this date range.', is_dark)
@@ -87,8 +87,8 @@ def build_completed_hours_heatmap(completion, is_dark=True, selected=None):
         custom,
         '<b>%{customdata[0]}</b><br>Completed: %{customdata[1]}'
         '<br>Tasks: %{customdata[2]}<extra></extra>',
-        'Completed video · verified source hours',
-        is_dark, caption, show_counts=False,
+        'Completed video hours' if compact else 'Completed video · verified source hours',
+        is_dark, '' if compact else caption, show_counts=False,
     )
     figure.update_layout(meta={**figure.layout.meta,
         'metric': 'source_date_completed_seconds',
