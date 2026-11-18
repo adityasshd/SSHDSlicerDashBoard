@@ -98,40 +98,61 @@ def render_panel(kind, request, saved, live, selected, theme, roster, show_count
     return figure, status
 
 
-def render_rework_hours(request, saved, live, selected, theme, completion_state='All',
+def render_rework_hours(request, saved, live, selected, theme, completion_state='Completed',
                         completed_evidence=None):
-    """Backwards-compatible callback name; render batch COUNTS, not hours."""
-    from slicing_dashboard.plots.kpi_overview import build_rework_count_metric
-    from slicing_dashboard.reporting.rework_tiers import rework_counts
+    """Display VIDEO HOURS by observed lifetime return tier; Unknown conserves gaps."""
+    from math import isfinite
+    from slicing_dashboard.plots.kpi_overview import build_rework_duration_metric
     from slicing_dashboard.plots.completed_hours_heatmap import completion_total
+    from slicing_dashboard.reporting.rework_tiers import DISPLAY_TIERS
 
     dark = (theme or 0) % 2 == 0
-    show_completion = completion_state == 'Completed'
-    verified_seconds = (completion_total(completed_evidence, selected)
-                        if show_completion else None)
     packet, status = choose_packet(request, saved, live)
-    if not packet:
-        return build_rework_count_metric(
-            status=status, is_dark=dark,
-            completed_seconds=verified_seconds, show_completed_hours=show_completion)
-    try:
-        frame = panel_frame(packet)
-        if selected is not None and 'User' in frame:
-            frame = frame[frame['User'].isin(selected)]
-        if completion_state in ('Completed', 'Pending approvals'):
-            if 'Completion State' not in frame:
-                raise ValueError('Latest batch status unavailable')
-            frame = frame[frame['Completion State'] == completion_state]
-        counts = rework_counts(frame)
-    except (KeyError, TypeError, ValueError):
-        return build_rework_count_metric(
-            status='Batch counts unavailable.', is_dark=dark,
-            completed_seconds=verified_seconds, show_completed_hours=show_completion)
-    # Stale and read-error states are necessary to avoid presenting old data
-    # as fresh. Avoid verbose calculation notes for valid captures.
-    return build_rework_count_metric(
-        counts, status=visible_status(request, saved, live), is_dark=dark,
-        completed_seconds=verified_seconds, show_completed_hours=show_completion)
+    hours = None
+    if packet and completion_state in ('Completed', 'Pending approvals'):
+        try:
+            frame = panel_frame(packet)
+            if 'Completion State' in frame:
+                frame = frame[frame['Completion State'] == completion_state]
+            else:
+                frame = frame.iloc[:0]
+            if selected is not None and 'User' in frame:
+                frame = frame[frame['User'].isin(selected)]
+            if 'Verified Hours Available' in frame:
+                frame = frame[frame['Verified Hours Available'] == True]  # noqa: E712
+            else:
+                frame = frame.iloc[:0]
+            if not frame.empty:
+                hours = dict.fromkeys(DISPLAY_TIERS, 0.0)
+                for row in frame.to_dict('records'):
+                    values = row.get('Verified Tier Duration (hrs)')
+                    if not isinstance(values, dict):
+                        raise ValueError('Missing tier evidence')
+                    for tier in DISPLAY_TIERS:
+                        value = values.get(tier)
+                        if (isinstance(value, bool) or not isinstance(value, (int, float))
+                                or not isfinite(value) or value < 0):
+                            raise ValueError('Invalid tier duration')
+                        hours[tier] += value
+        except (KeyError, TypeError, ValueError):
+            hours = None
+
+    # The dated completion panel is authoritative for the paid total. If its
+    # reconciliation lags, preserve the difference in Unknown, not in zero.
+    if completion_state == 'Completed':
+        total = completion_total(completed_evidence, selected)
+        if total is not None:
+            if hours is None:
+                hours = dict.fromkeys(DISPLAY_TIERS, 0.0)
+            attributed = sum(hours.values()) * 3600
+            if total >= attributed - 0.51:
+                hours['Unknown'] += max(0.0, total - attributed) / 3600
+            else:
+                hours = None
+                status = 'Completed source and archive disagree; refresh both.'
+    return build_rework_duration_metric(
+        hours, status=visible_status(request, saved, live) or (status if hours is None else None),
+        is_dark=dark)
 
 
 def visible_status(request, saved, live):
@@ -313,8 +334,8 @@ def _register_panel(app, manager, roster, kind):
                 html.Div(caution, className='kpiu-meta'),
             ])
             return figure, visible_status(request, saved_completion, live_completion), overview
-        # Rework tiers are batch counts; independently verified completed
-        # task-video hours get their own column, never allocated across tiers.
+        # Rework tiers are now video durations with Unknown for unlinked work.
+        # Completed is dated output; Pending Review is current inventory.
         evidence = (period_completion(request, saved_completion, live_completion)
                     if kind == 'rework' and completion_state == 'Completed'
                     else None)
