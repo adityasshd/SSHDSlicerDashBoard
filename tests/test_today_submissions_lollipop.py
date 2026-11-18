@@ -102,7 +102,7 @@ def test_missing_and_invalid_dated_counts_are_unavailable_not_zero():
         assert result['available'] is False
         figure = build_today_submissions_lollipop(result)
         assert not figure.data
-        assert 'not substituted' in figure.layout.annotations[0].text
+        assert 'substituted.' in figure.layout.annotations[0].text
 
 
 def test_old_duration_projection_is_not_used_for_the_count_only_plot():
