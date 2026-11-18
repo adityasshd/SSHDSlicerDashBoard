@@ -3,6 +3,7 @@ from math import isclose
 
 
 TIERS = ('No Rework', '1 Rework', '2 Reworks', '3+ Reworks')
+DISPLAY_TIERS = (*TIERS, 'Unknown')
 LEGACY_UPPER = ('3 Reworks', '4 Reworks', '5+ Reworks')
 
 
@@ -46,11 +47,15 @@ def prepare_rework_stacks(frame):
             upper_weight = row.get('3 Reworks', 0) * 3 + row.get('4 Reworks', 0) * 4 + five_weight
             sources.append(list(LEGACY_UPPER))
         counts.append(upper)
-        if any(value != int(value) for value in counts) or sum(counts) != row['Total Batches']:
+        # A verified-capture batch can also be unclassifiable. Legacy saved
+        # frames omit Unknown; those frames remain readable until refreshed.
+        counts.append(row.get('Unknown', 0))
+        sources.append(['Unknown'])
+        if any(value < 0 or value != int(value) for value in counts) or sum(counts) != row['Total Batches']:
             raise ValueError('Rework tiers do not match submitted batch totals')
         if upper_weight < upper * 3 or (upper == 0 and upper_weight != 0) or upper_weight != int(upper_weight):
             raise ValueError('Invalid return count for the 3+ rework tier')
-        weights = [counts[0], counts[1], counts[2] * 2, upper_weight]
+        weights = [counts[0], counts[1], counts[2] * 2, upper_weight, 0]
         hours_by_tier = [_tier_hours(row, scoped, count) for scoped, count in zip(sources, counts)]
         if 'Total Duration (hrs)' in row and all(hours is not None for hours in hours_by_tier):
             from slicing_dashboard.plots.guardrails import finite_number
@@ -58,8 +63,8 @@ def prepare_rework_stacks(frame):
             if duration is None or not isclose(sum(hours_by_tier), duration, rel_tol=1e-9, abs_tol=1e-7):
                 raise ValueError('Tier durations do not match the batch duration total')
         key = (row['User'], row.get('Completion State'))
-        result = combined.setdefault(key, {'counts': [0] * 4, 'weights': [0] * 4,
-            'hours': [0.] * 4, 'ids': [set() for _ in TIERS], 'total': 0})
+        result = combined.setdefault(key, {'counts': [0] * 5, 'weights': [0] * 5,
+            'hours': [0.] * 5, 'ids': [set() for _ in DISPLAY_TIERS], 'total': 0})
         result['total'] += row['Total Batches']
         for index, (count, weight, scoped, hours) in enumerate(zip(counts, weights, sources, hours_by_tier)):
             result['counts'][index] += count
@@ -80,20 +85,20 @@ def rework_hours(frame):
 
     if frame is not None and frame.attrs.get('chart_error'):
         raise ValueError('Rework source unavailable')
-    numeric = ['Total Batches', *TIERS, *LEGACY_UPPER, '3+ Return Count', '5+ Return Count',
+    numeric = ['Total Batches', *DISPLAY_TIERS, *LEGACY_UPPER, '3+ Return Count', '5+ Return Count',
                'Reworked Once', 'Reworked Twice+']
     frame = checked_frame(frame, ['User', 'Total Batches'], numeric)
     if frame.empty:
-        return dict.fromkeys(TIERS, 0.0)
+        return dict.fromkeys(DISPLAY_TIERS, 0.0)
     frame = frame[frame['Total Batches'] > 0]
     grouping = ['User', 'Completion State'] if 'Completion State' in frame else ['User']
     if 'Completion State' in frame and not frame['Completion State'].isin(['Completed', 'Pending approvals']).all():
         raise ValueError('Unknown batch completion state')
     if frame.duplicated(grouping).any():
         raise ValueError('Duplicate user batch totals')
-    totals = dict.fromkeys(TIERS, 0.0)
+    totals = dict.fromkeys(DISPLAY_TIERS, 0.0)
     for stack in prepare_rework_stacks(frame).values():
-        for tier, hours in zip(TIERS, stack['hours']):
+        for tier, hours in zip(DISPLAY_TIERS, stack['hours']):
             totals[tier] = totals[tier] + hours if totals[tier] is not None and hours is not None else None
     return totals
 
