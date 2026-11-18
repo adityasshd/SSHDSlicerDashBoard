@@ -24,7 +24,8 @@ FRAME_COLUMNS = {
                '3+ Return Count', 'Tier Duration (hrs)', '3 Reworks',
                '4 Reworks', '5+ Reworks', '5+ Return Count', 'Reworked Once', 'Reworked Twice+',
                'Total Duration (hrs)', 'Avg Batch Duration (hrs)', 'Tier IDs',
-               'Verified Tier Duration (hrs)', 'Verified Total Seconds', 'Verified Hours Available'),
+               'Verified Tier Duration (hrs)', 'Verified Total Seconds', 'Verified Hours Available',
+               'Verified Source Warning'),
 }
 SUM_FIELDS = ('total_approved_duration', 'prev_approved_duration',
               'total_pending_duration', 'leader_review_duration', 'auditor_review_duration',
@@ -121,7 +122,8 @@ def frame_payload(frame, kind):
                 ['User', 'Total Batches'] if kind == 'rework' else ['User', 'Stage', 'Duration'])
     labels = {'User', 'Stage', 'IDs', 'ID', 'AssignedDate', 'ReturnedDate', 'AssignmentDateBasis',
               'Tier IDs', 'Tier Duration (hrs)', 'Completion State', 'UpdateDateBasis',
-              'Verified Tier Duration (hrs)', 'Verified Hours Available'}
+              'Verified Tier Duration (hrs)', 'Verified Hours Available',
+              'Verified Source Warning'}
     columns = [column for column in FRAME_COLUMNS[kind] if column in frame]
     frame = checked_frame(frame, required, [column for column in columns if column not in labels])
     frame = frame[columns]
@@ -173,8 +175,11 @@ def capture_panel(manager, kind, start, end, force=False):
             elif kind == 'rework':
                 from slicing_dashboard.reporting.verified_duration_heatmaps import with_verified_duration
                 ratios = manager.get_batch_rework_ratio_df(start, end, force_refresh=force)
+                # Batch-date inventory failures must not hide independently
+                # captured source-dated completion or the live review queue.
+                # Without an auditable return ledger all time goes to Unknown.
                 if ratios.attrs.get('chart_error'):
-                    raise ValueError('Return history unavailable')
+                    ratios = pd.DataFrame()
                 data = frame_payload(with_verified_duration(manager, ratios, start, end), kind)
             elif kind == 'pending':
                 data = frame_payload(manager.get_pending_review_df(force_refresh=force), kind)
