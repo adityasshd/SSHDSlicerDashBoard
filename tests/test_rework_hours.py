@@ -82,9 +82,9 @@ def test_completion_and_pending_modes_show_disjoint_batch_counts():
 def test_invalid_tier_totals_do_not_render_credible_counts():
     invalid = packet()
     invalid['data']['records'][1]['Total Batches'] = 99
-    content = payload_text(render_rework_hours(REQUEST, None, invalid, None, 0))
-    assert 'Batch counts unavailable' in content
-    assert 'Returned: —' in content
+    content = render_rework_hours(REQUEST, None, invalid, None, 0)
+    assert 'Batch counts unavailable' in payload_text(content)
+    assert any(node.children == 'Returned: —' for node in components(content))
 
 
 def test_modified_unrelated_duration_does_not_change_count_only_ui():
@@ -101,7 +101,7 @@ def test_missing_count_is_unavailable_not_estimated_from_duration():
     content = build_rework_count_metric({
         'No Rework': 90, '1 Rework': 2, '2 Reworks': None,
         '3+ Reworks': 4, 'Unknown': 1})
-    assert 'Returned: —' in payload_text(content)
+    assert any(node.children == 'Returned: —' for node in components(content))
     assert 'Breakdown unavailable' in payload_text(content)
 
 
