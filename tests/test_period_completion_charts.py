@@ -12,9 +12,9 @@ from tests.test_daily_report_page import application_namespace
 def inventory():
     return batch_ratios([
         dict(batch_id='old', batch_date='2026-11-04', status='batch_completed',
-             last_updated='2026-11-04T12:00:00', total_duration_seconds=546163, user='A'),
+             last_updated='2026-11-04T12:00:00', return_count=0, total_duration_seconds=546163, user='A'),
         dict(batch_id='pending', batch_date='2026-11-16', status='batch_pending_admin_review',
-             total_duration_seconds=7200, user='B'),
+             return_count=0, total_duration_seconds=7200, user='B'),
     ], [], '2026-11-01', '2026-11-17', lambda batch: batch['user'])
 
 
