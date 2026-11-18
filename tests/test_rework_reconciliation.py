@@ -33,7 +33,7 @@ def fixture_data():
     return batches, returns
 
 
-def heatmap_hours(figure):
+def heatmap_batches(figure):
     assert len(figure.data) == 1  # All columns + neutral Total share cell geometry
     trace = figure.data[0]
     return sum(float(cell[-1]) for row in trace.customdata[:-1]
@@ -57,32 +57,33 @@ def test_rework_batch_event_dedup_and_duration_conservation():
     assert sum(stack["total"] for stack in prepare_rework_stacks(frame).values()) == 3
 
 
-@pytest.mark.parametrize("state,expected_hours", [
-    ("All", 12.0), ("Completed", 8.0), ("Pending approvals", 4.0),
+@pytest.mark.parametrize("state,expected_batches", [
+    ("All", 3), ("Completed", 2), ("Pending approvals", 1),
 ])
 @pytest.mark.parametrize("show_counts", [False, True])
-def test_rework_matrix_matches_source_hours_for_each_state(state, expected_hours, show_counts):
+def test_rework_matrix_counts_batches_without_substituting_video_hours(state, expected_batches, show_counts):
     batches, returns = fixture_data()
     frame = panel_frame({"data": frame_payload(
         batch_ratios(batches, returns, "2026-11-01", "2026-11-17",
                      lambda batch: batch["user"]), "rework")})
     fig = build_rework_ratio_chart(frame, "2026-11-01", True,
                                    completion_state=state, show_counts=show_counts)
-    assert heatmap_hours(fig) == pytest.approx(expected_hours)
-    # Colour intensity always measures HOURS even if count annotations are on.
+    assert heatmap_batches(fig) == expected_batches
+    # Color and cell labels measure counts, not original batch hours.
     assert all(trace.showscale is False for trace in fig.data)
     assert fig.layout.meta['color_scope'] == 'per_column'
-    assert sum(fig.layout.meta["column_totals"]) == pytest.approx(expected_hours)
+    assert sum(fig.layout.meta["column_totals"]) == expected_batches
+    assert fig.layout.meta['value_unit'] == 'Batches'
+    assert fig.layout.meta['raw_hour_customdata_index'] is None
+    assert fig.layout.title.subtitle is None
+    assert "Duration:" not in fig.data[0].hovertemplate
     for column in range(5):
         raw = [row[column][-1] for row in fig.data[0].customdata[:-1]]
         assert fig.layout.meta["column_totals"][column] == pytest.approx(sum(
             value for value in raw if value is not None))
         assert fig.layout.meta['column_maxima'][column] == pytest.approx(max(
             [value for value in raw if value is not None] or [0]))
-    assert fig.layout.meta["show_counts"] is show_counts
-    assert "Each batch duration counted once" in fig.layout.title.subtitle.text
-    if state == "All":
-        assert "Completed + Pending approvals" in fig.layout.title.subtitle.text
+    assert fig.layout.meta["show_counts"] is False
 
 
 def test_rework_toggle_callback_repaints_without_source_reads():
@@ -108,7 +109,7 @@ def test_rework_toggle_callback_repaints_without_source_reads():
         'No Rework', '1 Rework', '2 Reworks', '3+ Reworks', 'Unknown']
     assert all(cell[-1] is not None for row in all_fig.data[0].customdata[:-1] for cell in row)
     assert all(len(row) == 5 for row in all_fig.data[0].z)
-    assert sum(all_fig.layout.meta['column_totals']) == pytest.approx(12)
-    assert heatmap_hours(complete_fig) == pytest.approx(8)
-    assert heatmap_hours(pending_fig) == pytest.approx(4)
+    assert sum(all_fig.layout.meta['column_totals']) == 3
+    assert heatmap_batches(complete_fig) == 2
+    assert heatmap_batches(pending_fig) == 1
     manager.get_batch_rework_ratio_df.assert_not_called()
