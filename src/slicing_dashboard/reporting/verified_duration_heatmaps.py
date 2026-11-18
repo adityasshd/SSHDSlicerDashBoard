@@ -11,11 +11,14 @@ from datetime import date, timedelta
 from itertools import combinations
 from math import isfinite
 import json
+import logging
 
 import pandas as pd
 
 from slicing_dashboard.processing.batch_return_history import occurrence_identity
 from slicing_dashboard.processing.daily_work import instant
+
+log = logging.getLogger(__name__)
 
 TIERS = ("No Rework", "1 Rework", "2 Reworks", "3+ Reworks", "Unknown")
 STAGES = {
@@ -358,6 +361,7 @@ def with_verified_duration(manager, ratio_frame, start, end):
     try:
         completed = completed_duration_rows(manager, start, end, store, tiers)
     except Exception as error:
+        log.exception('Verified completed duration reconstruction failed')
         completed = {}
         failures.append("Completed archive: " + type(error).__name__)
     try:
@@ -366,6 +370,7 @@ def with_verified_duration(manager, ratio_frame, start, end):
             raise ValueError("Live pending task queue unavailable")
         pending = pending_duration_rows(manager, batches, tiers, capture["tasks"])
     except Exception as error:
+        log.exception('Verified pending queue duration reconstruction failed')
         pending = {}
         failures.append("Pending task queue: " + type(error).__name__)
     additions = list(_state_rows(completed, "Completed")) + list(_state_rows(pending, "Pending approvals"))
