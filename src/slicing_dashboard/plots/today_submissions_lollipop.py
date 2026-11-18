@@ -39,7 +39,10 @@ def build_today_submissions_lollipop(output, is_dark=True):
     values = output.get('values')
     if not isinstance(rows, list) or not isinstance(values, dict):
         raise ValueError('Missing per-user submission video durations')
-    for key in ('submitted_total', 'new', 'old_rework', 'same_day_rework'):
+    classified = output.get('classification_available', True) is not False
+    keys = (('submitted_total', 'new', 'old_rework', 'same_day_rework')
+            if classified else ('submitted_total',))
+    for key in keys:
         _number(values.get(key))
 
     seen = set()
@@ -52,17 +55,19 @@ def build_today_submissions_lollipop(output, is_dark=True):
             raise ValueError('Duplicate or invalid submission user')
         seen.add(name)
         submitted = _number(row.get('submitted_total'))
-        new = _number(row.get('new'))
-        old = _number(row.get('old_rework'))
-        same = _number(row.get('same_day_rework'))
-        if abs(submitted - new - old - same) > 0.05:
+        new = _number(row.get('new')) if classified else None
+        old = _number(row.get('old_rework')) if classified else None
+        same = _number(row.get('same_day_rework')) if classified else None
+        if classified and abs(submitted - new - old - same) > 0.05:
             raise ValueError('Submitted total does not reconcile to video-duration categories')
         parsed.append({'User': name, 'submitted': submitted,
                        'new': new, 'old': old, 'same': same})
 
+    comparisons = (('submitted', 'submitted_total'), ('new', 'new'),
+                   ('old', 'old_rework'), ('same', 'same_day_rework')) if classified else (
+                       ('submitted', 'submitted_total'),)
     if any(abs(sum(row[column] for row in parsed) - values[total]) > 0.05
-           for column, total in (('submitted', 'submitted_total'), ('new', 'new'),
-                                 ('old', 'old_rework'), ('same', 'same_day_rework'))):
+           for column, total in comparisons):
         raise ValueError('User totals disagree with verified daily submission evidence')
 
     if not parsed:
@@ -91,7 +96,8 @@ def build_today_submissions_lollipop(output, is_dark=True):
         text=[format_seconds(value, compact=True) for value in totals],
         textposition='top center', textfont={'size': 11, 'color': line_color},
         customdata=[[user, format_seconds(value),
-                     format_seconds(row['old'] + row['same'])]
+                     format_seconds(row['old'] + row['same']) if classified
+                     else 'Not verified in this snapshot']
                     for user, value, row in zip(users, totals, parsed)],
         hovertemplate='<b>%{customdata[0]}</b><br>Submitted video: %{customdata[1]}'
                       '<br>Rework included: %{customdata[2]}<extra></extra>',
@@ -100,10 +106,10 @@ def build_today_submissions_lollipop(output, is_dark=True):
 
     # Each rework type has a narrow STEM from zero and a visible terminal
     # marker: a real lollipop, not a second line or an extra submitted total.
-    for key, label, color, offset in (
+    for key, label, color, offset in ((
         ('old', 'Old rework', old_color, -0.16),
         ('same', 'Same-day rework', same_color, 0.16),
-    ):
+    ) if classified else ()):
         points = [row[key] for row in parsed]
         xs = [number + offset for number in x]
         for px, sec in zip(xs, points):
@@ -127,8 +133,11 @@ def build_today_submissions_lollipop(output, is_dark=True):
     upper = max(max(totals, default=0) / 3600 * 1.23, 1 / 60)
     ticks, ticklabels = duration_ticks(0, upper)
     subtitle = (
-        'Today so far · submitted video duration includes old and same-day rework'
-        '<br>Rework lollipops are components of Submitted, not additional hours'
+        ('Today so far · submitted video duration includes old and same-day rework'
+         '<br>Rework lollipops are components of Submitted, not additional hours')
+        if classified else
+        ('Current submitted-status VIDEO duration from the efficiency snapshot'
+         '<br>NOT verified as submitted today · rework categories unavailable')
     )
     if output.get('is_snapshot'):
         subtitle += ' · saved snapshot'
@@ -138,7 +147,8 @@ def build_today_submissions_lollipop(output, is_dark=True):
         subtitle += ' · captured ' + str(output['capture'])[:19]
 
     fig.update_layout(
-        title={'text': "Today's submitted video duration · " + str(output['date']),
+        title={'text': ("Today's submitted video duration" if classified
+                        else "Submitted-status video duration") + ' · ' + str(output['date']),
                'subtitle': {'text': subtitle, 'font': {'size': 10}}},
         template=theme['template'], height=max(390, 390 + max(0, len(users) - 9) * 10),
         paper_bgcolor=theme['bg_color'], plot_bgcolor=theme['bg_color'],
@@ -159,10 +169,12 @@ def build_today_submissions_lollipop(output, is_dark=True):
             'unit': 'video_hours',
             'date': output['date'],
             'submitted_seconds': values['submitted_total'],
-            'new_seconds': values['new'],
-            'old_rework_seconds': values['old_rework'],
-            'same_day_rework_seconds': values['same_day_rework'],
-            'rework_is_subset': True,
+            'new_seconds': values.get('new'),
+            'old_rework_seconds': values.get('old_rework'),
+            'same_day_rework_seconds': values.get('same_day_rework'),
+            'classification_available': classified,
+            'stock_not_daily_events': not classified,
+            'rework_is_subset': True if classified else None,
             'screen_time_included': False,
             'source': output.get('source'),
             'partial': bool(output.get('reconciliation_pending')),
