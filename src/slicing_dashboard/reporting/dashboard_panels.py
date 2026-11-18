@@ -122,8 +122,8 @@ def frame_payload(frame, kind):
                 ['User', 'Total Batches'] if kind == 'rework' else ['User', 'Stage', 'Duration'])
     labels = {'User', 'Stage', 'IDs', 'ID', 'AssignedDate', 'ReturnedDate', 'AssignmentDateBasis',
               'Tier IDs', 'Tier Duration (hrs)', 'Completion State', 'UpdateDateBasis',
-              'Verified Tier Duration (hrs)', 'Verified Hours Available',
-              'Verified Source Warning'}
+              'Verified Tier Duration (hrs)', 'Verified Total Seconds',
+              'Verified Hours Available', 'Verified Source Warning'}
     columns = [column for column in FRAME_COLUMNS[kind] if column in frame]
     frame = checked_frame(frame, required, [column for column in columns if column not in labels])
     frame = frame[columns]
