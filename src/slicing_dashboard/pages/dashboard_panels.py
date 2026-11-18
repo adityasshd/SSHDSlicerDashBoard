@@ -68,7 +68,6 @@ def render_panel(kind, request, saved, live, selected, theme, roster, show_count
         # missing batch record hide valid paid video hours.
         if kind == 'rework' and completion_state == 'Completed':
             from slicing_dashboard.plots.completed_hours_heatmap import completion_total
-            from slicing_dashboard.plots.rework_ratio_chart import build_rework_ratio_chart
             import pandas as pd
             if completion_total(completed_evidence, selected) is not None:
                 # Preserve the five video-hour tiers even while rework source
