@@ -114,7 +114,7 @@ def test_rework_splits_same_person_and_preserves_saved_state_and_unique_returns(
 def test_missing_person_status_is_a_gap_and_filters_keep_status_evidence():
     batches = [batch('a-done', 'batch_completed', member='A'),
                batch('a-wait', 'batch_pending_admin_review', member='A'),
-               batch('b-wait', 'batch_rework', member='B')]
+               batch('b-wait', 'batch_pending_auditor_review', member='B')]
     frame = batch_ratios(batches, [], '2026-10-01', '2026-10-13', lambda b: b['username'])
     original = frame.copy(deep=True)
     figure = build_rework_ratio_chart(frame, '', True)
