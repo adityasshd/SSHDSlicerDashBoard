@@ -1894,10 +1894,12 @@ class DataManager:
                 # The per-segment latest task update is a color fallback,
                 # not an assignment or return event.
                 'UpdatedDate': 'max',
-                'DaysUpdated': 'min',
                 'UpdateDateBasis': lambda values: next(
                     (value for value in values if value != 'Unknown'), 'Unknown'),
             })
+            assigned_df['DaysUpdated'] = assigned_df['UpdatedDate'].apply(
+                lambda day: max(0, (today - datetime.strptime(day, '%Y-%m-%d').date()).days)
+                if day else 0)
             assigned_df['IDs'] = assigned_df['ID']
         else:
             assigned_df = pd.DataFrame(columns=['User', 'ID', 'Stage', 'Duration', 'Count', 'AssignedDate', 'DaysAssigned', 'ReturnedDate', 'DaysReturned',
