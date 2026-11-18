@@ -131,6 +131,32 @@ def build_rework_count_metric(counts=None, status=None, is_dark=True,
     ]
 
 
+
+def build_rework_duration_metric(hours=None, status=None, is_dark=True):
+    """Exactly the heatmap's video-hour tiers, without batch-count weighting.
+
+    'Returned' sums durations in batches with one or more recorded lifetime
+    returns. It is NOT an estimate of hours spent performing rework.
+    """
+    colors = [f'var(--kpiu-series-{index})' for index in range(1, 5)] + ['#8b929a']
+    by_tier = {tier: None if hours is None else hours.get(tier)
+               for tier in DISPLAY_TIERS}
+    known = [by_tier[tier] for tier in TIERS[1:]]
+    returned = (sum(known) if all(_number(x, None) is not None and _number(x) >= 0
+                                  for x in known) else None)
+    return [
+        html.Div([
+            html.Span('Video hours · returned batches', className='kpiu-label'),
+            html.Strong(_hours(returned), className='kpiu-row-value'),
+        ], className='kpiu-row-heading'),
+        _parts([(tier, by_tier[tier], color)
+                for tier, color in zip(DISPLAY_TIERS, colors)],
+               'Video duration classified by observed lifetime batch returns',
+               format_value=_hours, share_unit='video duration'),
+        html.Div(status, className='kpiu-warning') if status else None,
+    ]
+
+
 def build_secondary_metrics(kpis):
     count = kpis.get('assignable_count')
     unavailable = bool(kpis.get('assignable_error')) or kpis.get('assignable_duration') is None
