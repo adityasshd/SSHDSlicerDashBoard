@@ -7,7 +7,7 @@ from html import escape
 
 import pandas as pd
 from slicing_dashboard.plots.theme import format_seconds
-from slicing_dashboard.plots.completed_hours_heatmap import completion_total
+from slicing_dashboard.plots.completed_hours_heatmap import completion_total, build_completed_hours_heatmap
 
 from slicing_dashboard.plots.guardrails import checked_frame, safe_chart, state_figure
 from slicing_dashboard.plots.intensity_chart import intensity_chart
@@ -59,11 +59,23 @@ def build_rework_ratio_chart(
          "3+ Return Count", "5+ Return Count", "Reworked Once", "Reworked Twice+"],
     )
     if frame.empty:
+        selected = selected_users if selected_users is not None else (
+            effective_users if is_filtering else None)
+        if (completion_state == 'Completed' and
+                completion_total(completed_evidence, selected) is not None):
+            return build_completed_hours_heatmap(
+                completed_evidence, is_dark, selected, compact=True)
         return state_figure("No batch data available.", is_dark)
     if is_filtering and effective_users is not None:
         frame = frame[frame["User"].isin(effective_users)]
     frame = frame[frame["Total Batches"] > 0]
     if frame.empty:
+        selected = selected_users if selected_users is not None else (
+            effective_users if is_filtering else None)
+        if (completion_state == 'Completed' and
+                completion_total(completed_evidence, selected) is not None):
+            return build_completed_hours_heatmap(
+                completed_evidence, is_dark, selected, compact=True)
         return state_figure("No batch data available.", is_dark)
 
     has_status = "Completion State" in frame.columns
@@ -75,6 +87,10 @@ def build_rework_ratio_chart(
             return state_figure("Batch status unavailable.", is_dark)
         frame = frame[frame["Completion State"] == completion_state].copy()
         if frame.empty:
+            if (completion_state == 'Completed' and
+                    completion_total(completed_evidence, selected_users) is not None):
+                return build_completed_hours_heatmap(
+                    completed_evidence, is_dark, selected_users, compact=True)
             return state_figure(f"No {completion_state.lower()} batches available.", is_dark)
 
     grouping = ["User", "Completion State"] if has_status else ["User"]
@@ -99,7 +115,11 @@ def build_rework_ratio_chart(
                 user = row['User']
                 if selected_users is not None and user not in selected_users:
                     continue
-                completed_by_user[user] = (float(row['seconds']), row.get('tasks'))
+                tasks = row.get('tasks')
+                if (isinstance(tasks, bool) or not isinstance(tasks, (int, float)) or
+                        tasks < 0 or int(tasks) != tasks):
+                    tasks = None
+                completed_by_user[user] = (float(row['seconds']), tasks)
             users = sorted(
                 set(users) | set(completed_by_user),
                 key=lambda user: (-completed_by_user.get(user, (0, None))[0],
