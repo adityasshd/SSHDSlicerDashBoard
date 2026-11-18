@@ -115,7 +115,11 @@ def attach_panels(manager, payload):
 
 
 def frame_payload(frame, kind):
-    if any(frame.attrs.get(key) for key in ('chart_error', 'pending_error', 'assignment_errors')):
+    # One failed assigned queue must not erase verified hours from the other
+    # queue. Carry partial-coverage metadata to the chart and KPI instead.
+    fail_keys = ('chart_error', 'pending_error') + (
+        () if kind == 'assigned' else ('assignment_errors',))
+    if any(frame.attrs.get(key) for key in fail_keys):
         raise ValueError('Chart source unavailable')
     from slicing_dashboard.plots.guardrails import checked_frame
     required = (['User', 'Completed Duration'] if kind == 'completion' else
@@ -128,12 +132,20 @@ def frame_payload(frame, kind):
     frame = checked_frame(frame, required, [column for column in columns if column not in labels])
     frame = frame[columns]
     # Preserve IDs needed by stack tooltips; omit task-level audit evidence.
-    return {'columns': list(frame.columns), 'records': json.loads(frame.to_json(orient='records'))}
+    packet = {'columns': list(frame.columns), 'records': json.loads(frame.to_json(orient='records'))}
+    if kind == 'assigned':
+        warnings = frame.attrs.get('assignment_errors') or []
+        packet['source_warnings'] = list(warnings)
+        packet['queue_complete'] = not bool(warnings)
+    return packet
 
 
 def panel_frame(packet):
     data = packet['data']
-    return pd.DataFrame(data['records'], columns=data['columns'])
+    result = pd.DataFrame(data['records'], columns=data['columns'])
+    result.attrs['assignment_errors'] = list(data.get('source_warnings') or [])
+    result.attrs['queue_complete'] = data.get('queue_complete', True)
+    return result
 
 
 def selected_summary(data, users, roster):
