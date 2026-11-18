@@ -79,13 +79,16 @@ def render_panel(kind, request, saved, live, selected, theme, roster, show_count
                                 packet['data']['funnel'], dark), html.Span(
                                     label, className='text-warning' if fallback else '', title=status)
     frame = panel_frame(packet)
-    if selected is not None and 'User' in frame:
+    # Rework needs the unfiltered captured cohort to distinguish a valid
+    # zero-tier user filter from an absent source capture. Apply its user
+    # selection inside the chart, alongside source-date completion users.
+    if selected is not None and 'User' in frame and kind != 'rework':
         frame = frame[frame['User'].isin(selected)]
     if kind == 'completion':
         figure = build_individual_chart(frame, request['start'], request['end'], dark)
     elif kind == 'rework':
         figure = build_rework_ratio_chart(
-            frame, request['start'], dark, None, False,
+            frame, request['start'], dark, selected, selected is not None,
             show_counts=show_counts, completion_state=completion_state,
             completed_evidence=completed_evidence, selected_users=selected)
     elif kind == 'assigned':
