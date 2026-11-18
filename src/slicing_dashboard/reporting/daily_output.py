@@ -193,3 +193,74 @@ def submission_rework_counts(day, selected_users=None, expected_date=None):
         'reconciliation_pending': bool(metadata.get('reconciliation_pending')),
         'coverage': metadata.get('coverage'),
     }
+
+
+
+def submitted_status_snapshot(capture, canonical_name, expected_date):
+    """Distinct fallback: currently submitted STATUS stock, not today's submissions.
+
+    Annotator-efficiency's submitted count/duration can be fetched from the
+    saved date-scoped efficiency report, but does NOT independently establish
+    that the underlying task was submitted on that calendar day. This view
+    deliberately has NO rework categories, just an explicitly labeled stock
+    video-duration line. No current task status is silently converted to
+    dated submissions.
+    """
+    if not isinstance(capture, dict) or capture.get('display_date') != expected_date:
+        return {'available': False, 'reason': 'No current dated efficiency snapshot'}
+    items = capture.get('items')
+    if not isinstance(items, list) or not capture.get('captured_at'):
+        return {'available': False, 'reason': 'Incomplete submitted-status snapshot'}
+    grouped, identities = {}, set()
+    for item in items:
+        if not isinstance(item, dict):
+            return {'available': False, 'reason': 'Invalid submitted-status account'}
+        uid = item.get('user_id')
+        if uid is None or str(uid) in identities:
+            return {'available': False, 'reason': 'Duplicate or missing submitted-status account ID'}
+        identities.add(str(uid))
+        try:
+            amount = float(item.get('submitted_duration_seconds'))
+            count = item.get('submitted_count')
+            if (not isfinite(amount) or amount < 0 or type(count) not in (int, float)
+                    or not isfinite(count) or count < 0 or int(count) != count):
+                raise ValueError('Invalid submitted-duration snapshot')
+        except (ValueError, TypeError, OverflowError):
+            return {'available': False, 'reason': 'Incomplete submitted-status duration'}
+        user = canonical_name(uid, item.get('username'))
+        if not reporting_user(user):
+            continue
+        group = grouped.setdefault(user, {'User': user, 'submitted_total': 0.,
+                                          'submitted_count': 0})
+        group['submitted_total'] += amount
+        group['submitted_count'] += int(count)
+    if not grouped:
+        return {'available': False, 'reason': 'No mapped submitted-status accounts'}
+    users = list(grouped.values())
+    return {
+        'available': True,
+        'date': expected_date,
+        'unit': 'submitted_video_seconds',
+        'source': 'saved_efficiency_submitted_status',
+        'classification_available': False,
+        'scope': 'status_snapshot_not_dated_submission_events',
+        'values': {'submitted_total': sum(row['submitted_total'] for row in users)},
+        'users': users,
+        'capture': capture.get('captured_at'),
+        'is_snapshot': True,
+        'reconciliation_pending': True,
+    }
+
+
+def select_submitted_status_snapshot(output, selected_users):
+    """Filter a validated stock snapshot without suggesting date-event proof."""
+    if not isinstance(output, dict) or not output.get('available'):
+        return {'available': False, 'reason': 'Submitted-status snapshot unavailable'}
+    if selected_users is None:
+        return output
+    selected = set(selected_users)
+    if not selected:
+        return {'available': False, 'reason': 'No users selected'}
+    rows = [row for row in output['users'] if row['User'] in selected]
+    return {**output, 'users': rows,
+            'values': {'submitted_total': sum(row['submitted_total'] for row in rows)}}
