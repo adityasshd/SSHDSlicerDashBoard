@@ -1,5 +1,6 @@
 """Saved-first today-submission plot: no task API calls from chart callbacks."""
 import dash
+import logging
 from dash import Input, Output
 
 from slicing_dashboard.management.periods import today_iso
@@ -10,6 +11,8 @@ from slicing_dashboard.reporting.daily_output import (
     submitted_video_output, submitted_status_snapshot,
     select_submitted_status_snapshot,
 )
+
+log = logging.getLogger(__name__)
 
 
 def saved_today_submission_day(manager, trend=None, today=None):
@@ -74,8 +77,10 @@ def register_today_submissions(app, manager):
                 fallback = _saved_submitted_status(manager, today_iso())
                 if fallback.get('available'):
                     day = {**day, 'submitted_status_snapshot': fallback}
-            except (KeyError, TypeError, ValueError, AttributeError, OSError):
-                pass
+            except Exception:
+                # Optional status-inventory fallback cannot break the daily
+                # report callback if a replica, pool or archived read fails.
+                log.exception('Submitted-status fallback capture failed')
         return day
 
     @app.callback(
