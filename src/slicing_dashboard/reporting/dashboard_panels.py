@@ -140,13 +140,21 @@ def frame_payload(frame, kind):
         warnings = frame.attrs.get('assignment_errors') or []
         packet['source_warnings'] = list(warnings)
         packet['queue_complete'] = not bool(warnings)
+    elif kind == 'rework':
+        # Even an empty dataframe can represent an unavailable remote archive.
+        # Preserve its reason separately from numeric cells so empty evidence
+        # is not misrepresented as zero videos.
+        packet['source_warnings'] = list(frame.attrs.get('source_warnings') or [])
     return packet
 
 
 def panel_frame(packet):
     data = packet['data']
     result = pd.DataFrame(data['records'], columns=data['columns'])
-    result.attrs['assignment_errors'] = list(data.get('source_warnings') or [])
+    result.attrs['assignment_errors'] = (
+        list(data.get('source_warnings') or [])
+        if 'queue_complete' in data else [])
+    result.attrs['source_warnings'] = list(data.get('source_warnings') or [])
     result.attrs['queue_complete'] = data.get('queue_complete', True)
     return result
 
