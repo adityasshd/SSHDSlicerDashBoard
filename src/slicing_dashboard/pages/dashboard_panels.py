@@ -55,10 +55,19 @@ def choose_packet(request, saved, live):
     return None, 'Latest data unavailable. Refresh to retry.' if live else 'Loading latest data…'
 
 
-def render_panel(kind, request, saved, live, selected, theme, roster, show_counts=False, completion_state='All'):
+def render_panel(kind, request, saved, live, selected, theme, roster, show_counts=False,
+                 completion_state='All', completed_evidence=None):
     dark = (theme or 0) % 2 == 0
     packet, status = choose_packet(request, saved, live)
     if not packet:
+        # Even if the batch cohort failed, an independently verified task
+        # completion report can still show its full hour total. Do not let the
+        # missing batch record hide valid paid video hours.
+        if kind == 'rework' and completion_state == 'Completed':
+            from slicing_dashboard.plots.completed_hours_heatmap import (
+                build_completed_hours_heatmap, completion_total)
+            if completion_total(completed_evidence, selected) is not None:
+                return build_completed_hours_heatmap(completed_evidence, dark, selected), status
         content = (dbc.Alert(status, color='secondary') if kind == 'summary'
                    else state_figure(status, dark))
         return content, status
@@ -75,7 +84,10 @@ def render_panel(kind, request, saved, live, selected, theme, roster, show_count
     if kind == 'completion':
         figure = build_individual_chart(frame, request['start'], request['end'], dark)
     elif kind == 'rework':
-        figure = build_rework_ratio_chart(frame, request['start'], dark, None, False, show_counts=show_counts, completion_state=completion_state)
+        figure = build_rework_ratio_chart(
+            frame, request['start'], dark, None, False,
+            show_counts=show_counts, completion_state=completion_state,
+            completed_evidence=completed_evidence, selected_users=selected)
     elif kind == 'assigned':
         figure = build_assigned_chart(frame, dark, show_counts=show_counts)
     else:
@@ -83,15 +95,22 @@ def render_panel(kind, request, saved, live, selected, theme, roster, show_count
     return figure, status
 
 
-def render_rework_hours(request, saved, live, selected, theme, completion_state='All'):
+def render_rework_hours(request, saved, live, selected, theme, completion_state='All',
+                        completed_evidence=None):
     """Backwards-compatible callback name; render batch COUNTS, not hours."""
     from slicing_dashboard.plots.kpi_overview import build_rework_count_metric
     from slicing_dashboard.reporting.rework_tiers import rework_counts
+    from slicing_dashboard.plots.completed_hours_heatmap import completion_total
 
     dark = (theme or 0) % 2 == 0
+    show_completion = completion_state == 'Completed'
+    verified_seconds = (completion_total(completed_evidence, selected)
+                        if show_completion else None)
     packet, status = choose_packet(request, saved, live)
     if not packet:
-        return build_rework_count_metric(status=status, is_dark=dark)
+        return build_rework_count_metric(
+            status=status, is_dark=dark,
+            completed_seconds=verified_seconds, show_completed_hours=show_completion)
     try:
         frame = panel_frame(packet)
         if selected is not None and 'User' in frame:
@@ -102,11 +121,14 @@ def render_rework_hours(request, saved, live, selected, theme, completion_state=
             frame = frame[frame['Completion State'] == completion_state]
         counts = rework_counts(frame)
     except (KeyError, TypeError, ValueError):
-        return build_rework_count_metric(status='Batch counts unavailable.', is_dark=dark)
+        return build_rework_count_metric(
+            status='Batch counts unavailable.', is_dark=dark,
+            completed_seconds=verified_seconds, show_completed_hours=show_completion)
     # Stale and read-error states are necessary to avoid presenting old data
     # as fresh. Avoid verbose calculation notes for valid captures.
     return build_rework_count_metric(
-        counts, status=visible_status(request, saved, live), is_dark=dark)
+        counts, status=visible_status(request, saved, live), is_dark=dark,
+        completed_seconds=verified_seconds, show_completed_hours=show_completion)
 
 
 def visible_status(request, saved, live):
@@ -138,7 +160,8 @@ def period_completion(request, saved, live):
                       'tasks': row.get('Completed Tasks')} for row in frame.to_dict('records')]}
 
 
-def overview_values(kind, request, saved, live, selected, theme, completion_state='All'):
+def overview_values(kind, request, saved, live, selected, theme, completion_state='All',
+                    completed_evidence=None):
     """Derive an overview section from the exact packet used by its chart.
 
     Sections stay mounted, so an independent summary repaint cannot erase
@@ -149,7 +172,8 @@ def overview_values(kind, request, saved, live, selected, theme, completion_stat
     from slicing_dashboard.plots.guardrails import checked_frame
     packet, _ = choose_packet(request, saved, live)
     if kind == 'rework':
-        return render_rework_hours(request, saved, live, selected, theme, completion_state)
+        return render_rework_hours(request, saved, live, selected, theme,
+                                   completion_state, completed_evidence)
     if not packet:
         return '—' if kind == 'completion' else build_workload_metric({}, kind, visible_status(request, saved, live))
     try:
@@ -286,11 +310,17 @@ def _register_panel(app, manager, roster, kind):
                 html.Div(caution, className='kpiu-meta'),
             ])
             return figure, visible_status(request, saved_completion, live_completion), overview
-        # Return tiers are batch counts; completed hours use a separate source.
+        # Rework tiers are batch counts; independently verified completed
+        # task-video hours get their own column, never allocated across tiers.
+        evidence = (period_completion(request, saved_completion, live_completion)
+                    if kind == 'rework' and completion_state == 'Completed'
+                    else None)
         figure, _ = render_panel(kind, request, saved, live, selected, theme, roster,
-                                 completion_state=completion_state)
+                                 completion_state=completion_state,
+                                 completed_evidence=evidence)
         result = (figure, visible_status(request, saved, live),
-                  overview_values(kind, request, saved, live, selected, theme, completion_state))
+                  overview_values(kind, request, saved, live, selected, theme,
+                                  completion_state, completed_evidence=evidence))
         if kind == 'pending':
             from slicing_dashboard.plots.overview_charts import build_review_workload_donut
             packet, status = choose_packet(request, saved, live)
