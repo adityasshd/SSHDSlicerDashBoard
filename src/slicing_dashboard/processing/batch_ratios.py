@@ -49,12 +49,15 @@ def batch_ratios(batches, returns, start, end, resolve):
         if not (start <= day <= end or identifier in active_returns):
             continue
         status = batch.get('status', '')
-        submitted = (status in {'batch_completed', 'batch_rework', 'batch_reviewing',
-                     'batch_pending_leader_review', 'batch_pending_auditor_review', 'batch_pending_admin_review'}
-                     or any(number(batch.get(field, 0), count=True) > 0 for field in
-                            ('completed_count', 'pending_review_count', 'return_count', 'rework_count'))
-                     or identifier in active_returns)
-        if not submitted:
+        # This heatmap has only Completed and Pending Review. A recalled or
+        # unassigned batch is neither: even an explicit return_count does NOT
+        # make it pending review. Historical returns for those batches stay
+        # visible in the separate event-first Workflow monthly history.
+        review_statuses = {
+            'batch_reviewing', 'batch_pending_leader_review',
+            'batch_pending_auditor_review', 'batch_pending_admin_review',
+        }
+        if status != 'batch_completed' and status not in review_statuses:
             continue
         user = resolve(batch)
         if not user or str(user).casefold() in {'admin', 'test', 'dep', 'exempt', 'user-none', '(unassigned)'}:
