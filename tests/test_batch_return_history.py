@@ -167,7 +167,9 @@ def test_unverified_return_tier_goes_to_unknown_and_preserves_batch_hours():
     assert list(fig.data[0].x)[-1] == 'Unknown'
     assert fig.layout.meta['column_totals'][-1] == pytest.approx(2)
     assert sum(fig.layout.meta['column_totals']) == pytest.approx(4)
-    assert 'incomplete batch return histories' in fig.layout.title.subtitle.text
+    assert fig.layout.title.subtitle.text is None
+    assert fig.layout.meta['value_unit'] == 'Batches'
+    assert 'Duration' not in fig.data[0].hovertemplate
 
 
 def test_missing_ledger_return_count_is_unknown_but_future_verified_returns_are_not():
