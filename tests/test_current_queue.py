@@ -239,3 +239,114 @@ def test_rework_return_color_bands(age, color):
         figure = build_assigned_chart(pd.DataFrame([{'User': 'Aditya', 'Stage': 'Rework Assigned',
             'Duration': 90, 'AssignedDate': '2026-09-01', 'ReturnedDate': returned}]), True)
     assert figure.data[-1].marker.color[0] == color
+
+
+def test_missing_assignment_date_uses_only_live_task_updated_on_fallback():
+    dm = manager()
+    dm._batches_master_cache = {}  # no historical batch date
+    tasks = [{**task('a', 3600), 'updated_on': '2026-10-12T18:00:00+08:00'}]
+    with patch('slicing_dashboard.processing.current_queue.fetch_queue',
+               side_effect=[tasks, []]), \
+         patch('slicing_dashboard.management.periods.today_iso',
+               return_value='2026-10-14'):
+        frame = dm.get_detailed_pending_assigned_df(overview_data={})
+    row = frame[frame.Stage == 'New Assigned'].iloc[0]
+    assert row.AssignedDate == ''
+    assert row.UpdatedDate == '2026-10-12'
+    assert row.DaysUpdated == 2
+    assert row.UpdateDateBasis == 'updated_on'
+    with patch('slicing_dashboard.plots.assigned_chart.today_iso',
+               return_value='2026-10-14'):
+        bar = [trace for trace in build_assigned_chart(
+            frame[frame.Stage == 'New Assigned'], True).data if trace.type == 'bar'][0]
+    assert bar.marker.color[0] == '#22c55e'
+    assert bar.customdata[0][4] == 'Unknown'  # real assignment date is still unknown
+    assert 'Last task update: 2026-10-12 · 2d ago' in bar.customdata[0][7]
+    assert 'Assigned on: %{customdata[4]}' in bar.hovertemplate
+
+
+def test_missing_rework_return_date_uses_update_only_as_labelled_fallback():
+    dm = manager()
+    dm._batches_master_cache = {}
+    dm._batch_returns_cache = []
+    rows = [{**task('r', 7200, status='slice_rework'),
+             'updated_on': '2026-10-13T09:00:00+08:00'}]
+    with patch('slicing_dashboard.processing.current_queue.fetch_queue',
+               side_effect=[[], rows]), \
+         patch('slicing_dashboard.management.periods.today_iso',
+               return_value='2026-10-14'):
+        frame = dm.get_detailed_pending_assigned_df(overview_data={})
+    row = frame[frame.Stage == 'Rework Assigned'].iloc[0]
+    assert row.ReturnedDate == ''
+    assert row.UpdatedDate == '2026-10-13'
+    with patch('slicing_dashboard.plots.assigned_chart.today_iso',
+               return_value='2026-10-14'):
+        bar = [trace for trace in build_assigned_chart(
+            frame[frame.Stage == 'Rework Assigned'], True).data if trace.type == 'bar'][0]
+    assert bar.marker.color[0] == '#fb7185'
+    assert bar.customdata[0][6] == '<br>Returned on: Unknown'
+    assert 'Last task update: 2026-10-13 · 1d ago' in bar.customdata[0][7]
+
+
+def test_actual_return_date_beats_newer_general_record_update():
+    row = {**task('r', 3600, status='slice_rework'),
+           'returned_at': '2026-10-10T10:00:00+08:00',
+           'updated_on': '2026-10-14T11:00:00+08:00'}
+    with patch('slicing_dashboard.management.periods.today_iso',
+               return_value='2026-10-14'):
+        metadata = assignment_metadata(row, [])
+    assert metadata['ReturnedDate'] == '2026-10-10'
+    assert metadata['UpdatedDate'] == '2026-10-14'
+    with patch('slicing_dashboard.plots.assigned_chart.today_iso',
+               return_value='2026-10-14'):
+        bar = [trace for trace in build_assigned_chart(pd.DataFrame([{
+            'User': 'A', 'ID': 'acct', 'Stage': 'Rework Assigned',
+            'Duration': 3600, 'Count': 1, **metadata}]), True).data if trace.type == 'bar'][0]
+    assert bar.marker.color[0] == '#dc2626'
+    assert bar.customdata[0][7] == ''  # fallback never overrides evidence
+
+
+def test_latest_update_from_multiple_tasks_in_one_segment_is_not_first_row():
+    dm = manager()
+    dm._batches_master_cache = {}
+    rows = [
+        {**task('a', 3600), 'slice_batch': 10,
+         'updated_on': '2026-10-09T12:00:00+08:00'},
+        {**task('b', 1800), 'slice_batch': 10,
+         'updated_on': '2026-10-13T12:00:00+08:00'},
+    ]
+    with patch('slicing_dashboard.processing.current_queue.fetch_queue',
+               side_effect=[rows, []]), \
+         patch('slicing_dashboard.management.periods.today_iso',
+               return_value='2026-10-14'):
+        frame = dm.get_detailed_pending_assigned_df(overview_data={})
+    selected = frame[frame.Stage == 'New Assigned']
+    assert len(selected) == 1
+    assert selected.iloc[0].Duration == 5400
+    assert selected.iloc[0].UpdatedDate == '2026-10-13'
+    assert selected.iloc[0].DaysUpdated == 1
+
+
+def test_future_or_collector_batch_sync_timestamp_never_colours_unknown_assignment():
+    batch_sync = [{'batch_id': 'b', 'status': 'batch_member_assigned',
+                   'last_updated': '2026-10-14 17:00:00',
+                   'assignee_id': 2, 'batch_date': None}]
+    row = {**task('a', 60), 'updated_on': '2026-10-19T12:00:00+08:00'}
+    with patch('slicing_dashboard.management.periods.today_iso',
+               return_value='2026-10-14'):
+        metadata = assignment_metadata(row, batch_sync)
+    assert metadata['UpdatedDate'] == ''
+    assert metadata['AssignedDate'] == ''
+    assert metadata['ReturnedDate'] == ''
+    figure = build_assigned_chart(pd.DataFrame([{
+        'User': 'A', 'Stage': 'New Assigned', 'Duration': 60, **metadata}]), True)
+    assert figure.data[-1].marker.color[0] == '#94a3b8'
+
+
+def test_alternate_live_task_updated_at_is_supported_when_updated_on_absent():
+    row = {**task('a', 60), 'updated_at': '2026-10-14T12:00:00+08:00'}
+    with patch('slicing_dashboard.management.periods.today_iso',
+               return_value='2026-10-14'):
+        metadata = assignment_metadata(row, [])
+    assert metadata['UpdatedDate'] == '2026-10-14'
+    assert metadata['UpdateDateBasis'] == 'updated_at'
