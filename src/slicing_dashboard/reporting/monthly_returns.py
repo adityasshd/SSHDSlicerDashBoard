@@ -60,6 +60,29 @@ def monthly_return_history(batches, returns, start, end, *,
     days = {day: {status: set() for status in STATES} for day in dates}
     batch_events = defaultdict(list)
     all_observed = defaultdict(set)
+
+    # An unlinked batch has no authoritative current assignee. Preserve its
+    # return-feed viewers separately so it stays inspectable under a selected
+    # account, but NEVER describe a viewer as the verified batch owner.
+    viewers_by_batch, viewer_accounts_by_batch = defaultdict(set), defaultdict(set)
+    for event in returns:
+        if not isinstance(event, dict):
+            continue
+        batch_id = str(event.get('batch_id') or '').strip()
+        try:
+            stamp = instant(event.get('returned_at'))
+        except (ValueError, TypeError, OverflowError):
+            stamp = None
+        if not batch_id or stamp is None or stamp.date() > last:
+            continue
+        viewer = str(event.get('canonical_user') or '').strip()
+        if viewer and viewer.casefold() not in EXCLUDED_NAMES:
+            viewers_by_batch[batch_id].add(viewer)
+        account = str(event.get('username') or '').strip()
+        account_id = event.get('user_id')
+        if account:
+            label = (f'{account} [{account_id}]' if account_id is not None else account)
+            viewer_accounts_by_batch[batch_id].add(label)
     seen = set()
     duplicated = invalid = omitted = 0
     for event in returns:
@@ -86,8 +109,14 @@ def monthly_return_history(batches, returns, start, end, *,
                   item.get('canonical_user') if item else None)
         if member and str(member).casefold() in EXCLUDED_NAMES:
             continue
-        if chosen is not None and (member not in chosen):
-            continue
+        if chosen is not None:
+            # Linked batches use only the latest saved ledger member.
+            # Unlinked batches use return-feed *viewers* for discovery;
+            # their actual owning member remains unresolved.
+            if item is not None and member not in chosen:
+                continue
+            if item is None and not chosen.intersection(viewers_by_batch[batch_id]):
+                continue
         all_observed[batch_id].add(identity)
         day = stamp.date().isoformat()
         if day < start:
@@ -110,6 +139,13 @@ def monthly_return_history(batches, returns, start, end, *,
             'Latest Return This Month': events[-1][0].isoformat(timespec='seconds'),
             'Batch Date': item.get('batch_date') if item else None,
             'Ledger Linked': bool(item),
+            'Observed Accounts': ', '.join(sorted(viewer_accounts_by_batch[batch_id])),
+            'Owner Evidence': (
+                'Unverified — return-feed viewer only' if item is None else
+                'Last saved assignee — batch unassigned'
+                if item.get('status') == 'batch_unassigned' else
+                'Latest ledger assignee'),
+
         })
     rows.sort(key=lambda row: (-row['Returns This Month'],
                               row['Latest Return This Month'], row['Batch']), reverse=False)
@@ -141,6 +177,13 @@ def monthly_return_history(batches, returns, start, end, *,
             'pending_review_state_returns': totals['Pending Review'],
             'other_or_unlinked_returns': totals['Other / Unlinked'],
             'unlinked_batches': sum(not row['Ledger Linked'] for row in rows),
+            'unlinked_viewer_match_batches': (
+                sum(not row['Ledger Linked'] for row in rows)
+                if chosen is not None else 0),
+            'unassigned_batches_with_returns': sum(
+                row['Owner Evidence'] == 'Last saved assignee — batch unassigned'
+                for row in rows),
+
             'duplicate_documents_ignored': duplicated,
             'unusable_documents_ignored': invalid,
         },
