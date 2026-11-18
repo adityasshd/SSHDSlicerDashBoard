@@ -224,9 +224,22 @@ def overview_values(kind, request, saved, live, selected, theme, completion_stat
                     for stage in ('Leader', 'Auditor', 'Admin')}
             kpis['total_pending_duration'] = sum(kpis.values())
         else:
-            kpis = {'assigned_duration': float(durations.get('New Assigned', 0)),
-                    'rework_assigned_duration': float(durations.get('Rework Assigned', 0))}
-            kpis['assigned_now_duration'] = sum(kpis.values())
+            warnings = list(frame.attrs.get('assignment_errors') or [])
+            missing = {stage for stage in ('New Assigned', 'Rework Assigned')
+                       if any(str(error).startswith(stage + ':') for error in warnings)}
+            kpis = {
+                'assigned_duration': (None if 'New Assigned' in missing
+                                      else float(durations.get('New Assigned', 0))),
+                'rework_assigned_duration': (None if 'Rework Assigned' in missing
+                                             else float(durations.get('Rework Assigned', 0))),
+            }
+            kpis['assigned_now_duration'] = (sum(kpis.values())
+                                            if not missing else None)
+            if missing:
+                # This is a PARTIAL live inventory. Never claim the observed
+                # remaining queue is the full Assigned Now total.
+                return build_workload_metric(
+                    kpis, kind, 'Incomplete live queues: ' + ', '.join(sorted(missing)))
         return build_workload_metric(kpis, kind, visible_status(request, saved, live))
     except (KeyError, TypeError, ValueError):
         return '—' if kind == 'completion' else build_workload_metric({}, kind, 'Workload unavailable.')
