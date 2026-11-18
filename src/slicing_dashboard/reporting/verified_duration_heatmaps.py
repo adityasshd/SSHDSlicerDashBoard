@@ -335,7 +335,9 @@ def with_verified_duration(manager, ratio_frame, start, end):
     returns = getattr(manager, "_batch_returns_cache", []) or []
     if isinstance(returns, dict):
         returns = list(returns.values())
-    tiers = _return_tiers(batches, returns, not getattr(manager, "_returns_source_error", None))
+    healthy = not (getattr(manager, "_returns_source_error", None) or
+                   getattr(manager, "_batch_source_error", None))
+    tiers = _return_tiers(batches, returns, healthy)
     # Independent source failures must not hide another verified duration
     # source. Completed fallback uses the separate source-date completion
     # panel as Unknown; Pending never falls back to whole-batch inventory.
