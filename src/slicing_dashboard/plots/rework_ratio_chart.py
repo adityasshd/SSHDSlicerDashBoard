@@ -15,6 +15,7 @@ from slicing_dashboard.plots.theme import format_seconds
 from slicing_dashboard.reporting.rework_tiers import (
     LEGACY_UPPER,
     TIERS,
+    DISPLAY_TIERS,
     prepare_rework_stacks,
 )
 
@@ -55,7 +56,7 @@ def build_rework_ratio_chart(
         ["User", "Total Batches"],
         [
             "Total Batches",
-            *TIERS,
+            *DISPLAY_TIERS,
             *LEGACY_UPPER,
             "3+ Return Count",
             "5+ Return Count",
@@ -114,7 +115,7 @@ def build_rework_ratio_chart(
         total = int(sum(stack["total"] for _, stack in user_stacks))
         row_hours, row_counts, row_labels, row_custom = [], [], [], []
 
-        for index, tier in enumerate(TIERS):
+        for index, tier in enumerate(DISPLAY_TIERS):
             count = int(sum(stack["counts"][index] for _, stack in user_stacks))
             durations = [stack["hours"][index] for _, stack in user_stacks]
             duration = (
@@ -194,11 +195,14 @@ def build_rework_ratio_chart(
     else:
         note += " · completion status unavailable"
     note += ('<br>Batch / return-date cohort · whole batches, not task completion hours'
-             '<br>Latest saved status · return tiers use observed events through selected end')
+             '<br>Known tiers require observed return events to agree with ledger count'
+             '<br>Unknown holds inconsistent or incomplete batch return histories')
+    if 'Unknown' not in frame.columns:
+        note += '<br>Legacy capture: Unknown classification not available until refreshed'
 
     return intensity_chart(
         users,
-        list(TIERS),
+        list(DISPLAY_TIERS),
         {
             "Hours": (hours_matrix, hour_labels),
             "Batches": (
