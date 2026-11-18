@@ -53,6 +53,7 @@ def submitted_video_output(day, selected_users=None, expected_date=None):
     counts = {key: 0 for key, _, _, _ in BUCKETS}
     count_known = {key: True for key, _, _, _ in BUCKETS}
     seen = set()
+    user_values = []
     for row in rows:
         if not isinstance(row, dict):
             return {'available': False, 'date': actual_date,
@@ -70,6 +71,8 @@ def submitted_video_output(day, selected_users=None, expected_date=None):
                for _, _, field, _ in BUCKETS):
             return {'available': False, 'date': actual_date,
                     'reason': 'Missing new/old/same-day submission breakdown'}
+        person_seconds = {}
+        person_counts = {}
         for key, _, duration_field, count_field in BUCKETS:
             try:
                 seconds = float(row[duration_field])
@@ -83,10 +86,18 @@ def submitted_video_output(day, selected_users=None, expected_date=None):
                 return {'available': False, 'date': actual_date,
                         'reason': 'Invalid submission metric'}
             sums[key] += seconds
+            person_seconds[key] = seconds
+            person_counts[key] = int(count) if count is not None else None
             if count is not None:
                 counts[key] += int(count)
             else:
                 count_known[key] = False
+        user_values.append({
+            'User': user,
+            'submitted_total': sum(person_seconds.values()),
+            **person_seconds,
+            'counts': person_counts,
+        })
     total = sum(sums.values())
     counts = {key: value if count_known[key] else None for key, value in counts.items()}
     total_tasks = (sum(counts.values()) if all(value is not None for value in counts.values())
@@ -96,6 +107,7 @@ def submitted_video_output(day, selected_users=None, expected_date=None):
         'date': actual_date,
         'source': 'dated_task_submission_capture',
         'unit': 'submitted_video_seconds',
+        'users': user_values,
         'values': {
             'submitted_total': total,
             **sums,
