@@ -1,22 +1,32 @@
 # Submitted work evidence policy — November 17–18, 2026
 
-## Interim display decision (November 18)
+## Revised dashboard display (November 18)
 
-The main Dashboard now displays **only two task counts** for the selected
-India-local day: **Submitted today** (new + old rework + same-day rework)
-and **Rework submissions** (old + same-day rework). Rework submissions
-are already included in submitted today; do not add the two bars.
+The main Dashboard now prefers the **dated Daily submission report's VIDEO
+durations**. It renders a **per-user line** for all submitted video hours and
+two separate **vertical lollipops** for **Old rework** and **Same-day rework**.
+These reworks are already included in submitted duration, so their markers
+must not be added to the line. Durations come from the report's three
+disjoint buckets; `Total Duration` in the legacy Daily Report excludes old
+rework and must not be substituted.
 
-The count-only plot needs a valid dated Daily submission report, per-user
-`New Tasks`, `Old Rework Tasks` and `Same-day Rework Tasks`, and
-matching user/date scope. It no longer needs video duration fields.
-An unavailable Daily capture or missing count stays **Unavailable**;
-current status, batch-return notices and whole-batch durations are not
-used as substitute submission events. There is no new source API permission
-and no claim of complete November submission counts.
+When the dated Daily submission report cannot be verified (for example,
+access to historical task-submission timestamps is denied), the chart may
+still render a **line-only submitted-status inventory snapshot** from the
+saved annotator-efficiency capture for the current India-local date.
+This fallback is explicitly labeled **"NOT verified as submitted today"**:
+it measures video duration in the source's submitted task status, *not*
+work submitted during that calendar day. It contains **no old/same-day
+rework lollipops**, since neither task status nor a return notice proves
+the requisite submission/return chronology. In both modes, an unavailable
+video duration stays unavailable and is never presented as zero.
 
-The rest of this document describes the retained payable-video-duration
-methodology and the original four-duration-row proposal, now deferred.
+Both render paths use selected-user mappings, don't make upstream API calls
+while painting, and exclude screen, session, or worklog duration.
+
+The count-only chart previously used is retained only as a historical
+interim implementation. Its validation function is still available for
+other explicit task-count analysis, but no longer drives the dashboard.
 
 ## Decision: count video duration, not screen or worklog time
 
