@@ -108,7 +108,7 @@ def test_rework_callback_switches_between_source_hours_and_original_batch_exposu
     assert exposure.layout.meta['column_totals'][0] == 1
     assert exposure.layout.meta['value_unit'] == 'Batches'
     assert 'Duration' not in exposure.data[0].hovertemplate
-    assert exposure.layout.title.subtitle is None
+    assert exposure.layout.title.subtitle.text is None
     # Missing or wrong-period completion must not substitute the 150-hour cohort.
     unavailable, _, _, _, _ = fn(request, rework, None, 0, 'Verified completed hours',
                                   {**completed, 'request_id': 'other'}, None, None, '/', None)
