@@ -8,13 +8,15 @@ from slicing_dashboard.plots.theme import theme_ctx, tooltip_text_color
 
 
 def intensity_chart(users, categories, metrics, customdata, hovertemplate, title, is_dark,
-                    subtitle=None, show_counts=False):
+                    subtitle=None, show_counts=False, value_key='Hours'):
     """Keep intensity in hours; optionally label each cell as HH:MM / count."""
     theme = theme_ctx(is_dark)
     scale = ([[0, '#0d211c'], [.5, '#165a50'], [1, '#c2fd75']] if is_dark else
              [[0, '#edf5ed'], [.5, '#a9d89b'], [1, '#165a50']])
-    values, labels = metrics['Hours']
-    counts = next(matrix[0] for label, matrix in metrics.items() if label != 'Hours')
+    # Charts may show original video hours or observed batch counts. Never
+    # normalize a duration when the visible metric is a count.
+    values, labels = metrics[value_key]
+    counts = metrics['Batches'][0] if 'Batches' in metrics else values
     has_total = bool(users and users[-1] == '<b>Total</b>')
     colored_values = values[:-1] if has_total else values
     # Each column measures its own relative intensity. A large value in one
@@ -77,13 +79,14 @@ def intensity_chart(users, categories, metrics, customdata, hovertemplate, title
                     'font': {'size': 12, 'color': hover_text_colors}},
     ))
     figure.update_layout(
-        title={'text': title, 'subtitle': {
-            'text': ((subtitle + ' · ') if subtitle else '') + 'Color intensity relative within each column',
-            'font': {'size': 10}}},
+        title=({'text': title} if subtitle == '' else
+               {'text': title, 'subtitle': {
+                   'text': ((subtitle + ' · ') if subtitle else '') + 'Color intensity relative within each column',
+                   'font': {'size': 10}}}),
         template=theme['template'], paper_bgcolor=theme['bg_color'], plot_bgcolor=theme['bg_color'],
         font={'family': 'Inter, sans-serif', 'size': 12, 'color': theme['font_color']},
         height=max(340, len(users) * 30 + 150),
-        margin={'l': 70, 'r': 16, 't': 88, 'b': 24},
+        margin={'l': 70, 'r': 16, 't': 58 if subtitle == '' else 88, 'b': 24},
         xaxis={'showgrid': False, 'side': 'top', 'type': 'category', 'fixedrange': True},
         yaxis={'showgrid': False, 'autorange': 'reversed', 'type': 'category', 'fixedrange': True,
                'categoryorder': 'array', 'categoryarray': users},
@@ -91,7 +94,9 @@ def intensity_chart(users, categories, metrics, customdata, hovertemplate, title
         meta={'intensity_matrix': True, 'show_counts': bool(show_counts),
               'color_scope': 'per_column',
               'single_aligned_matrix': True,
-              'raw_hour_customdata_index': -1,
+              'raw_hour_customdata_index': -1 if value_key == 'Hours' else None,
+              'raw_value_customdata_index': -1,
+              'value_unit': value_key,
               'column_maxima': column_maxima,
               'column_totals': values[-1] if has_total else None},
     )
