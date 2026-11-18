@@ -13,9 +13,10 @@ from slicing_dashboard.processing.pending_review import number
 def batch_ratios(batches, returns, start, end, resolve):
     date.fromisoformat(start)
     date.fromisoformat(end)
-    # Compare observed return occurrences with the *current* ledger before
-    # allocating any batch to a verified return tier. A capped history feed
-    # cannot establish that a missing return happened zero times.
+    # Compare observed return occurrences with the current ledger before
+    # allocating a tier. IMPORTANT: the Collector can itself populate the
+    # ledger return_count from these same observations. Equality alone then
+    # proves consistency, NOT independent or lifetime completeness.
     recorded, all_observed, invalid_returns, active_returns = (
         defaultdict(set), defaultdict(set), set(), set())
     for row in returns:
