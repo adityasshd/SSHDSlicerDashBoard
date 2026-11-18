@@ -16,7 +16,8 @@ from slicing_dashboard.reporting.monthly_returns import monthly_return_history
 TABLE_FIELDS = (
     'Batch', 'Member', 'Latest Status', 'Returns This Month',
     'Total Observed Returns Through End', 'First Return This Month',
-    'Latest Return This Month', 'Ledger Linked',
+    'Latest Return This Month', 'Ledger Linked', 'Observed Accounts',
+    'Owner Evidence',
 )
 
 
@@ -42,13 +43,20 @@ def render_monthly_return_history(manager, selected=None, theme=0, today=None):
     figure = build_monthly_returns_chart(report, dark)
     summary = report['summary']
     date_label = date.fromisoformat(end).strftime('%d %b %Y')
+    match_notice = (
+        f" · {summary['unlinked_viewer_match_batches']} unlinked batch"
+        f"{'es' if summary['unlinked_viewer_match_batches'] != 1 else ''} "
+        "matched by return-feed viewer (owner unverified)"
+        if summary.get('unlinked_viewer_match_batches') else ''
+    )
     message = html.Div([
         html.Strong(f"{summary['observed_returns']} observed returns"),
         html.Span(f" · {summary['affected_batches']} affected batches"
                   f" · {summary['repeat_return_batches_this_month']} returned more than once"
                   f" · {summary['completed_state_returns']} currently completed"
                   f" · {summary['pending_review_state_returns']} currently pending review"
-                  f" · {summary['other_or_unlinked_returns']} other/unlinked"),
+                  f" · {summary['other_or_unlinked_returns']} other/unlinked"
+                  + match_notice),
         html.Div(
             f"Month to {date_label} · saved capture only · observed history may be incomplete"
             " · statuses are latest saved states, not state on return date.",
