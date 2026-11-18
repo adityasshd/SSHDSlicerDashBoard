@@ -92,8 +92,12 @@ def _hours(value):
     return '—' if value is None else format_seconds(value * 3600)
 
 
-def build_rework_count_metric(counts=None, status=None, is_dark=True):
-    """Show observed batch counts; old batch durations are not payable rework."""
+def build_rework_count_metric(counts=None, status=None, is_dark=True,
+                              completed_seconds=None, show_completed_hours=False):
+    """Return-tier counts plus independently verified completed video hours.
+
+    The completed-hour number is NOT distributed into the batch tier bars.
+    """
     colors = [f'var(--kpiu-series-{index})' for index in range(1, 5)] + ['#8b929a']
     totals = {tier: None if counts is None else counts.get(tier)
               for tier in DISPLAY_TIERS}
@@ -101,7 +105,17 @@ def build_rework_count_metric(counts=None, status=None, is_dark=True):
     returned_total = (sum(returned)
                       if all(isinstance(value, int) and value >= 0 for value in returned)
                       else None)
+    completed = (
+        [html.Div([
+            html.Span('Completed video hours', className='kpiu-label'),
+            html.Strong(
+                format_seconds(completed_seconds) if completed_seconds is not None
+                else 'Unavailable', className='kpiu-row-value'),
+        ], className='kpiu-row-heading')]
+        if show_completed_hours else []
+    )
     return [
+        *completed,
         html.Div([
             html.Span('Rework batches', className='kpiu-label'),
             html.Strong('Returned: ' + ('—' if returned_total is None
