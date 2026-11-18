@@ -20,7 +20,7 @@ REQUEST = {'id': 'one'}
 def tier_frame():
     batches = [dict(batch_id=str(index), username=f'account-{index}', batch_date='2026-10-01',
                     status='batch_completed' if index % 2 else 'batch_pending_admin_review',
-                    total_duration_seconds=hours * 3600)
+                    total_duration_seconds=hours * 3600, return_count=[0, 1, 2, 3, 4, 7][index])
                for index, hours in enumerate([1, 2, 3, 4, 5, 6])]
     events = [dict(event_id=f'{index}-{attempt}', batch_id=str(index), returned_at='2026-10-02T03:00:00Z')
               for index, count in enumerate([0, 1, 2, 3, 4, 7]) for attempt in range(count)]
@@ -35,7 +35,7 @@ def packet():
 
 def test_tier_hours_survive_capture_and_count_once_across_completion_states():
     hours = rework_hours(panel_frame(packet()))
-    assert hours == {'No Rework': 1, '1 Rework': 2, '2 Reworks': 3, '3+ Reworks': 15}
+    assert hours == {'No Rework': 1, '1 Rework': 2, '2 Reworks': 3, '3+ Reworks': 15, 'Unknown': 0}
     assert sum(hours.values()) == 21
 
 
@@ -75,7 +75,7 @@ def test_legacy_upper_tiers_merge_hours_without_multiplying_returns():
     frame = pd.DataFrame([{'User': 'A', 'Total Batches': 4, 'No Rework': 1,
         '3 Reworks': 1, '4 Reworks': 1, '5+ Reworks': 1, '5+ Return Count': 8,
         'Tier Duration (hrs)': {'No Rework': 2, '3 Reworks': 4, '4 Reworks': 6, '5+ Reworks': 8}}])
-    assert rework_hours(frame) == {'No Rework': 2, '1 Rework': 0, '2 Reworks': 0, '3+ Reworks': 18}
+    assert rework_hours(frame) == {'No Rework': 2, '1 Rework': 0, '2 Reworks': 0, '3+ Reworks': 18, 'Unknown': 0}
 
 
 def test_old_capture_without_tier_hours_does_not_allocate_person_total():
