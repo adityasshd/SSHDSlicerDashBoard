@@ -149,7 +149,9 @@ class PendingReviewCapture:
         if not owner:
             return deepcopy(future.result())
         try:
-            result = {'items': fetch_items(scraper, end), 'end': end, 'clock': monotonic(),
+            task_records = []
+            items = fetch_items(scraper, end, task_records=task_records)
+            result = {'items': items, 'tasks': task_records, 'end': end, 'clock': monotonic(),
                       'captured_at': datetime.now(timezone.utc).isoformat(), 'error': None}
         except Exception as error:
             result = {'items': [], 'end': end, 'captured_at': None, 'error': type(error).__name__}
