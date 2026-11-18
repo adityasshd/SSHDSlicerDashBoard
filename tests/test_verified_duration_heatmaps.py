@@ -269,3 +269,94 @@ def test_rework_render_panel_has_no_shadowed_chart_import(monkeypatch):
     assert figure is dummy_figure
     assert status == "Captured"
     assert calls[0]["completion_state"] == "Pending approvals"
+
+
+
+def test_remote_db_failure_is_not_treated_as_empty_local_sqlite():
+    """A failed configured Atlas connection must not invent zero hours."""
+    from types import SimpleNamespace
+    from slicing_dashboard.reporting.verified_duration_heatmaps import (
+        historical_store_unavailable,
+    )
+    atlas = SimpleNamespace(
+        settings=SimpleNamespace(mongo_uri="mongodb+srv://example.invalid",
+                                 database_url=None),
+        mongo_db=None, engine=None,
+    )
+    manager = SimpleNamespace(db=atlas)
+    assert historical_store_unavailable(manager) is True
+    local = SimpleNamespace(
+        settings=SimpleNamespace(mongo_uri=None, database_url=None),
+        mongo_db=None, engine=None,
+    )
+    assert historical_store_unavailable(SimpleNamespace(db=local)) is False
+    atlas.mongo_db = object()
+    assert historical_store_unavailable(manager) is False
+
+
+def test_incomplete_efficiency_window_raises_missing_coverage_not_zero(monkeypatch):
+    from slicing_dashboard.reporting import verified_duration_heatmaps as module
+
+    monkeypatch.setattr(module, "_efficiency_days",
+                        lambda *args: {"2026-11-10": {"items": []}})
+    with pytest.raises(module.EfficiencyCaptureUnavailable,
+                       match=r"missing: 1 of 2"):
+        module.completed_duration_rows(
+            object(), "2026-11-10", "2026-11-11", object(), {})
+
+
+def test_db_outage_keeps_independent_pending_duration_and_explains_completed(monkeypatch):
+    """Offline Mongo's empty SQLite does not hide a valid live pending queue."""
+    from types import SimpleNamespace
+    from slicing_dashboard.reporting import verified_duration_heatmaps as module
+
+    class Manager:
+        _batches_master_cache = {}
+        _batch_returns_cache = []
+        _returns_source_error = None
+        _batch_source_error = None
+        db = SimpleNamespace(
+            settings=SimpleNamespace(mongo_uri="mongodb+srv://example.invalid",
+                                     database_url=None),
+            mongo_db=None, engine=None,
+        )
+        scraper = object()
+
+        @staticmethod
+        def _get_reporting_name(uid, username):
+            return "Aditya"
+
+    monkeypatch.setattr(module, "_efficiency_days",
+                        lambda *args: pytest.fail("Offline database should not be read"))
+    monkeypatch.setattr(module, "capture_for",
+                        lambda manager: SimpleNamespace(read=lambda scraper: {
+                            "error": None,
+                            "tasks": [
+                                {"id": "pending1", "slicer_id": 4912,
+                                 "slicer": "SSHD-Adi", "status": "slice_submitted",
+                                 "slice_batch": 23, "duration_seconds": 90},
+                            ],
+                        }), raising=False)
+    # capture_for is imported inside the function; patch its source module.
+    from slicing_dashboard.processing import pending_review
+    monkeypatch.setattr(pending_review, "capture_for",
+                        lambda manager: SimpleNamespace(read=lambda scraper: {
+                            "error": None,
+                            "tasks": [
+                                {"id": "pending1", "slicer_id": 4912,
+                                 "slicer": "SSHD-Adi", "status": "slice_submitted",
+                                 "slice_batch": 23, "duration_seconds": 90},
+                            ],
+                        }))
+    frame = module.with_verified_duration(
+        Manager(), pd.DataFrame(), "2026-11-01", "2026-11-18")
+    assert len(frame) == 1
+    row = frame.iloc[0]
+    assert row["Completion State"] == "Pending approvals"
+    assert row["Verified Total Seconds"] == pytest.approx(90)
+    assert row["Verified Tier Duration (hrs)"]["Unknown"] == pytest.approx(90 / 3600)
+    assert "configured database unavailable" in row["Verified Source Warning"]
+    packet = frame_payload(frame, "rework")
+    restored = panel_frame({"data": packet})
+    assert any("configured database unavailable" in warning
+               for warning in restored.attrs["source_warnings"])
