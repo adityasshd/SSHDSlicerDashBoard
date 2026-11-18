@@ -279,10 +279,23 @@ def _build_verified_hours(frame, is_dark, completion_state, selected, completed_
             if raw > existing + 0.51:
                 by_user.setdefault(name, [0.] * 5)[4] += (raw - existing) / 3600
 
+    warnings = sorted(set(
+        str(w) for w in [
+            *(frame.attrs.get("source_warnings") or []),
+            *frame.get("Verified Source Warning", []),
+        ] if w and isinstance(w, str)))
     if not by_user:
-        return state_figure(
-            "Pending review source unavailable." if completion_state == "Pending approvals"
-            else "Completed video duration unavailable for this period.", is_dark)
+        if completion_state == "Pending approvals":
+            message = "Pending review task source unavailable; video hours are not zero."
+        elif any("configured database unavailable" in w for w in warnings):
+            message = ("Completed video duration unavailable: historical database "
+                       "connection failed. Check MongoDB DNS and restart.")
+        elif any("incomplete daily coverage" in w for w in warnings):
+            message = ("Completed video duration unavailable: selected date range "
+                       "has missing historical efficiency captures.")
+        else:
+            message = "Completed video duration unavailable for this period."
+        return state_figure(message, is_dark)
     users = sorted(by_user, key=lambda name: (-sum(by_user[name]), str(name).casefold()))
     hours, labels, hover = [], [], []
     for user in users:
@@ -299,8 +312,6 @@ def _build_verified_hours(frame, is_dark, completion_state, selected, completed_
     users.append("<b>Total</b>")
     scope = ("Completed paid video · selected date range" if completion_state == "Completed"
              else "Current pending Leader / Auditor / Admin review")
-    warnings = sorted(set(str(w) for w in frame.get("Verified Source Warning", [])
-                          if w and isinstance(w, str)))
     figure = intensity_chart(
         users, tiers, {"Hours": (hours, labels)}, hover,
         "<b>%{customdata[0]}</b><br>%{customdata[1]}<br>%{customdata[2]}"
