@@ -93,7 +93,7 @@ def test_rework_matrix_preserves_counts_and_never_shows_original_hours(dark):
     assert '10000' not in figure.to_json()
     assert figure.data[0].x[-1] == 'Unknown'
     assert figure.layout.hovermode == 'closest'
-    assert figure.layout.title.subtitle is None
+    assert figure.layout.title.subtitle.text is None
     with_counts = build_rework_ratio_chart(frame, '2026-10-01', dark, show_counts=True)
     assert [item.text for item in with_counts.layout.annotations][:5] == [
         '1', '1', '1', '3', '0']
