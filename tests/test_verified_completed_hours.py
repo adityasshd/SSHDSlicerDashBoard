@@ -105,8 +105,10 @@ def test_rework_callback_switches_between_source_hours_and_original_batch_exposu
     assert verified.layout.meta['column_totals'][0] * 3600 == pytest.approx(227009.866)
     exposure, _, _, _, _ = fn(request, rework, None, 0, 'Completed',
                                  completed, None, None, '/', None)
-    assert exposure.layout.meta['column_totals'][0] == pytest.approx(150)
-    assert 'whole batches, not task completion hours' in exposure.layout.title.subtitle.text
+    assert exposure.layout.meta['column_totals'][0] == 1
+    assert exposure.layout.meta['value_unit'] == 'Batches'
+    assert 'Duration' not in exposure.data[0].hovertemplate
+    assert exposure.layout.title.subtitle is None
     # Missing or wrong-period completion must not substitute the 150-hour cohort.
     unavailable, _, _, _, _ = fn(request, rework, None, 0, 'Verified completed hours',
                                   {**completed, 'request_id': 'other'}, None, None, '/', None)
