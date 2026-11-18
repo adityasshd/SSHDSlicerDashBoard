@@ -103,3 +103,34 @@ def rework_hours(frame):
     return totals
 
 
+
+
+def rework_counts(frame):
+    """Return verified/Unknown BATCH COUNTS, never source video durations.
+
+    Older captures without the Unknown column remain readable. Missing batch
+    duration fields cannot invalidate observed return-event counts.
+    """
+    from slicing_dashboard.plots.guardrails import checked_frame
+
+    if frame is not None and frame.attrs.get('chart_error'):
+        raise ValueError('Rework source unavailable')
+    frame = checked_frame(frame, ['User', 'Total Batches'],
+                          ['Total Batches', *DISPLAY_TIERS, *LEGACY_UPPER,
+                           '3+ Return Count', '5+ Return Count',
+                           'Reworked Once', 'Reworked Twice+'])
+    if frame.empty:
+        return dict.fromkeys(DISPLAY_TIERS, 0)
+    frame = frame[frame['Total Batches'] > 0]
+    group = ['User', 'Completion State'] if 'Completion State' in frame else ['User']
+    if 'Completion State' in frame and not frame['Completion State'].isin(
+            ['Completed', 'Pending approvals']).all():
+        raise ValueError('Unknown batch completion state')
+    if frame.duplicated(group).any():
+        raise ValueError('Duplicate user batch totals')
+    count_only = frame.drop(columns=['Total Duration (hrs)',
+                                     'Avg Batch Duration (hrs)',
+                                     'Tier Duration (hrs)'], errors='ignore')
+    stacks = prepare_rework_stacks(count_only)
+    return {tier: sum(stack['counts'][index] for stack in stacks.values())
+            for index, tier in enumerate(DISPLAY_TIERS)}
