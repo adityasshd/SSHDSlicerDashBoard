@@ -184,10 +184,12 @@ def capture_panel(manager, kind, start, end, force=False):
             elif kind == 'pending':
                 data = frame_payload(manager.get_pending_review_df(force_refresh=force), kind)
             elif kind == 'assigned':
-                manager.sync_batches_master(start, end, force_refresh=force)
+                # Live slice_assigned/slice_rework queues establish the stock.
+                # Batch sync and assignable-pool discovery are independent and
+                # may fail without invalidating these live video durations.
                 frame = manager.get_detailed_pending_assigned_df(
                     start_date='2020-01-01', end_date=today_iso(),
-                    force_refresh=force, include_pending=False)
+                    force_refresh=force, include_pending=False, include_pool=False)
                 if not frame.empty:
                     frame = frame[frame['Stage'].isin(['New Assigned', 'Rework Assigned'])]
                 data = frame_payload(frame, kind)
@@ -206,4 +208,6 @@ def capture_panel(manager, kind, start, end, force=False):
                     del panels[old]
         return packet
     except Exception as error:
+        # Do not print credentials/URLs or raw server responses. Expose only
+        # the category; the UI can distinguish incomplete queues from timeouts.
         return {'available': False, 'error': type(error).__name__, 'started_at': started}
