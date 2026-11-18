@@ -244,7 +244,7 @@ def _build_verified_hours(frame, is_dark, completion_state, selected, completed_
         rows = rows[rows["User"].isin(selected)]
     rows = (rows[rows["Verified Hours Available"] == True]  # noqa: E712
             if "Verified Hours Available" in rows else rows.iloc[:0])
-    if rows.duplicated(["User"]).any():
+    if not rows.empty and rows.duplicated(["User"]).any():
         raise ValueError("Duplicate user duration records")
 
     tiers = list(DISPLAY_TIERS)
