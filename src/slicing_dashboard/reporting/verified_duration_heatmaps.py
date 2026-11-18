@@ -35,6 +35,29 @@ TOLERANCE_SECONDS = 0.5
 EXCLUDED = {"admin", "test", "dep", "exempt", "user-none", "(unassigned)", "unassigned", ""}
 
 
+class EfficiencyCaptureUnavailable(ValueError):
+    """Missing dated archive coverage is a source problem, never zero hours."""
+
+
+def historical_store_unavailable(manager):
+    """Detect a failed configured remote database before local SQLite fallback.
+
+    An intentional SQLite-only installation may legitimately have local
+    history. A configured Atlas/Postgres connection that failed during startup
+    must NOT be silently replaced by an unrelated local empty history.
+    """
+    db = getattr(manager, "db", None)
+    if db is None:
+        return False
+    settings = getattr(db, "settings", None)
+    uri = (getattr(settings, "mongo_uri", None) or
+           getattr(settings, "database_url", None) or "")
+    configured_remote = str(uri).startswith(("mongodb://", "mongodb+srv://",
+                                             "postgres://", "postgresql://"))
+    return bool(configured_remote and getattr(db, "mongo_db", None) is None and
+                getattr(db, "engine", None) is None)
+
+
 def seconds(value):
     if value is None or isinstance(value, bool):
         raise ValueError("Video duration missing")
@@ -252,8 +275,13 @@ def _efficiency_days(store, start, end):
 def completed_duration_rows(manager, start, end, store, tiers):
     captures = _efficiency_days(store, start, end)
     expected = (date.fromisoformat(end) - date.fromisoformat(start)).days + 1
-    if expected < 1 or expected > 62 or len(captures) != expected:
-        raise ValueError("Incomplete source-dated efficiency capture for selected range")
+    if expected < 1 or expected > 62:
+        raise EfficiencyCaptureUnavailable(
+            "Selected range exceeds supported historical capture window")
+    if len(captures) != expected:
+        raise EfficiencyCaptureUnavailable(
+            f"Historical efficiency days missing: {expected - len(captures)} "
+            f"of {expected} for {start} through {end}")
     options = _candidate_options(_archive_states(store, start, end))
     by_user = defaultdict(lambda: dict.fromkeys(TIERS, 0.0))
     for day in sorted(captures):
@@ -358,12 +386,26 @@ def with_verified_duration(manager, ratio_frame, start, end):
     # source. Completed fallback uses the separate source-date completion
     # panel as Unknown; Pending never falls back to whole-batch inventory.
     failures = []
-    try:
-        completed = completed_duration_rows(manager, start, end, store, tiers)
-    except Exception as error:
-        log.exception('Verified completed duration reconstruction failed')
+    # If the configured Atlas/PG store failed to initialize (e.g. SRV DNS
+    # timeout), a local SQLite file may exist but is NOT the same dataset.
+    # Retain independently verified live pending video durations, while
+    # marking completed archive coverage explicitly unavailable.
+    if historical_store_unavailable(manager):
         completed = {}
-        failures.append("Completed archive: " + type(error).__name__)
+        failures.append("Completed archive: configured database unavailable")
+        log.warning("Verified completed duration unavailable: configured "
+                    "historical database did not initialize")
+    else:
+        try:
+            completed = completed_duration_rows(manager, start, end, store, tiers)
+        except EfficiencyCaptureUnavailable as error:
+            completed = {}
+            failures.append("Completed archive: incomplete daily coverage")
+            log.warning("Verified completed duration unavailable: %s", error)
+        except Exception as error:
+            log.exception('Verified completed duration reconstruction failed')
+            completed = {}
+            failures.append("Completed archive: " + type(error).__name__)
     try:
         capture = capture_for(manager).read(manager.scraper)
         if capture.get("error") or "tasks" not in capture:
@@ -394,4 +436,6 @@ def with_verified_duration(manager, ratio_frame, start, end):
         extra["Verified Source Warning"] = "; ".join(failures)
         frame = pd.concat([frame, extra], ignore_index=True)
     # Explicit unavailability, not zero, for missing known user/state cells.
+    # Preserve a source warning even when there are no user rows to serialize.
+    frame.attrs["source_warnings"] = list(failures)
     return frame
