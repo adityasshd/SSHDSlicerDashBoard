@@ -133,3 +133,67 @@ def test_genuine_distinct_return_ids_at_same_timestamp_are_not_collapsed():
                           '2026-11-17', '2026-11-17',
                           lambda row: row['canonical_user'])
     assert ratios.iloc[0]['2 Reworks'] == 1
+
+
+def test_unverified_return_tier_goes_to_unknown_and_preserves_batch_hours():
+    from slicing_dashboard.reporting.rework_tiers import rework_hours
+    from slicing_dashboard.plots.rework_ratio_chart import build_rework_ratio_chart
+    from slicing_dashboard.reporting.dashboard_panels import frame_payload, panel_frame
+
+    batches = [
+        batch('Verified-zero', count=0),
+        batch('Verified-one', count=1),
+        batch('Unobserved', count=3),  # feed omitted the ledger's returns
+        batch('Bad-timestamp', count=0),
+    ]
+    returns = [
+        event('Verified-one', '2026-11-17T08:00:00Z'),
+        {'batch_id': 'Bad-timestamp', 'returned_at': 'not a time'},
+    ]
+    frame = batch_ratios(batches, returns, '2026-11-17', '2026-11-17',
+                         lambda row: row['canonical_user'])
+    row = frame.iloc[0]
+    assert row['Total Batches'] == 4
+    assert row['No Rework'] == 1
+    assert row['1 Rework'] == 1
+    assert row['Unknown'] == 2
+    assert row['Tier Duration (hrs)']['Unknown'] == pytest.approx(2)
+    assert sum(row['Tier Duration (hrs)'].values()) == pytest.approx(
+        row['Total Duration (hrs)'])
+    totals = rework_hours(frame)
+    assert totals['Unknown'] == pytest.approx(2)
+    fig = build_rework_ratio_chart(panel_frame({'data': frame_payload(frame, 'rework')}),
+                                   '2026-11-17', True)
+    assert list(fig.data[0].x)[-1] == 'Unknown'
+    assert fig.layout.meta['column_totals'][-1] == pytest.approx(2)
+    assert sum(fig.layout.meta['column_totals']) == pytest.approx(4)
+    assert 'incomplete batch return histories' in fig.layout.title.subtitle.text
+
+
+def test_missing_ledger_return_count_is_unknown_but_future_verified_returns_are_not():
+    a = batch('Missing-ledger')
+    a.pop('return_count')
+    future = batch('Future-verified', count=2)
+    returns = [
+        event('Future-verified', '2026-11-17T08:00:00Z'),
+        event('Future-verified', '2026-11-19T08:00:00Z'),
+    ]
+    frame = batch_ratios([a, future], returns, '2026-11-17', '2026-11-17',
+                         lambda row: row['canonical_user'])
+    row = frame.iloc[0]
+    assert row['Unknown'] == 1
+    assert row['1 Rework'] == 1
+    assert row['No Rework'] == 0
+    assert row['2 Reworks'] == 0
+    assert row['Total Batches'] == 2
+
+
+def test_ledger_event_overcount_is_unknown_not_falsely_three_plus():
+    b = batch('Mismatch', count=1)
+    returns = [event('Mismatch', '2026-11-17T08:00:00Z'),
+               event('Mismatch', '2026-11-17T09:00:00Z')]
+    row = batch_ratios([b], returns, '2026-11-17', '2026-11-17',
+                       lambda entry: entry['canonical_user']).iloc[0]
+    assert row['Unknown'] == 1
+    assert row['2 Reworks'] == 0
+    assert row['3+ Reworks'] == 0
