@@ -87,7 +87,8 @@ def layout_workflow_history(today):
                 columns=[{'name': label, 'id': label} for label in (
                     'Batch', 'Member', 'Latest Status', 'Returns This Month',
                     'Total Observed Returns Through End', 'First Return This Month',
-                    'Latest Return This Month', 'Ledger Linked')],
+                    'Latest Return This Month', 'Ledger Linked',
+                    'Observed Accounts', 'Owner Evidence')],
                 page_size=15, page_action='native', sort_action='native',
                 style_table={'overflowX': 'auto'},
                 style_cell={'textAlign': 'left', 'padding': '8px', 'minWidth': '105px',
