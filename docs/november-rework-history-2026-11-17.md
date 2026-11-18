@@ -90,13 +90,28 @@ For a selected historical cutoff, compare the full saved occurrence count
 to the current ledger for completeness, then use only dated observations
 through that cutoff to choose the verified tier.
 
-Unknown contains the **number of affected batches and their original
-video duration**, not invented rework labor or approved task hours.
-Known tier totals exclude Unknown, while all five columns still reconcile
-to the included batch inventory. Legacy saved rework captures cannot certify
+Unknown contains the **number of affected batches**. The original video
+duration remains available in the underlying audit frame, but is deliberately
+**not displayed as rework duration** in the heatmap or Overview. Both
+now use batch counts and all five tier counts reconcile to inventory. Legacy saved rework captures cannot certify
 Unknown classification; they need a new capture. Because the upstream
 history API lacks full pagination, a numerical ledger match increases
 confidence but does not independently establish lifetime completeness.
 
 This change is **feature-branch-only**, not an upstream data correction,
 production deployment, or historical settlement backfill.
+
+
+## November 18 — last-update date fallback
+
+The Assigned Work chart reads current task queue items from /api/slice/tasks.
+When a task lacks an assignment date or reliable return date, a valid
+task-side updated_on (or updated_at/status_updated_at/modified_at) is used
+only to compute the bar's age color. Its hover states **Last task update**
+rather than inventing assignment or return time. The actual event date, when
+available, takes priority. A future or unparseable timestamp stays unknown.
+
+A cached batch-master `last_updated` is a **Collector sync timestamp**, not
+an upstream task event; it must never be used for this fallback. Grouped live
+task segments use their most recent task-side update. Viewer snapshots
+require a fresh assigned panel capture for the new fields.
