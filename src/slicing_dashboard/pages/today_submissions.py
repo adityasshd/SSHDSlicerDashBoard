@@ -6,7 +6,10 @@ from slicing_dashboard.management.periods import today_iso
 from slicing_dashboard.plots.today_submissions_lollipop import (
     build_today_submissions_lollipop,
 )
-from slicing_dashboard.reporting.daily_output import submitted_video_output
+from slicing_dashboard.reporting.daily_output import (
+    submitted_video_output, submitted_status_snapshot,
+    select_submitted_status_snapshot,
+)
 
 
 def saved_today_submission_day(manager, trend=None, today=None):
@@ -34,6 +37,23 @@ def saved_today_submission_day(manager, trend=None, today=None):
                 'metadata': {'available': False, 'error': 'DailySourceUnavailable'}}
 
 
+def _saved_submitted_status(manager, today):
+    """Use only locally saved efficiency evidence, not an extra chart API call.
+
+    It is a submitted STATUS inventory, never an assertion that task
+    submissions occurred on the selected date.
+    """
+    from slicing_dashboard.processing.workflow_history import WorkflowStore
+    store = WorkflowStore(manager.db, initialize=False).chart_reader()
+    captures = store.records('efficiency-capture', start=today, end=today)
+    selected = [capture for capture in captures
+                if isinstance(capture, dict) and capture.get('display_date') == today]
+    if not selected:
+        return {'available': False, 'reason': 'No saved submitted-status snapshot'}
+    latest = max(selected, key=lambda capture: str(capture.get('captured_at') or ''))
+    return submitted_status_snapshot(latest, manager._get_reporting_name, today)
+
+
 def register_today_submissions(app, manager):
     @app.callback(
         Output('dashboard-today-submissions-evidence', 'data'),
@@ -45,7 +65,18 @@ def register_today_submissions(app, manager):
     def load_today(pathname, _clicks, _intervals, trend):
         if pathname not in (None, '/', '/dashboard'):
             raise dash.exceptions.PreventUpdate
-        return saved_today_submission_day(manager, trend)
+        day = saved_today_submission_day(manager, trend)
+        # Prefer real dated submitted video events. If the upstream task
+        # history is forbidden or incomplete, show a clearly differentiated
+        # submitted-status stock line, with NO inferred rework lollipops.
+        if not submitted_video_output(day, expected_date=today_iso()).get('available'):
+            try:
+                fallback = _saved_submitted_status(manager, today_iso())
+                if fallback.get('available'):
+                    day = {**day, 'submitted_status_snapshot': fallback}
+            except (KeyError, TypeError, ValueError, AttributeError, OSError):
+                pass
+        return day
 
     @app.callback(
         Output('today-submissions-lollipop-chart', 'figure'),
@@ -58,4 +89,8 @@ def register_today_submissions(app, manager):
         if pathname not in (None, '/', '/dashboard'):
             raise dash.exceptions.PreventUpdate
         evidence = submitted_video_output(day, selected, expected_date=today_iso())
+        if not evidence.get('available') and isinstance(day, dict):
+            fallback = day.get('submitted_status_snapshot')
+            if fallback and fallback.get('available'):
+                evidence = select_submitted_status_snapshot(fallback, selected)
         return build_today_submissions_lollipop(evidence, (theme or 0) % 2 == 0)
