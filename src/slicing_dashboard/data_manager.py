@@ -1730,7 +1730,7 @@ class DataManager:
     @_per_refresh
     @_serialized_source
     def _current_task_stats(self, status, force_refresh=False):
-        from slicing_dashboard.processing.current_queue import fetch_queue
+        from slicing_dashboard.processing.current_queue import fetch_queue, latest_task_update
         self.refresh_shared_configuration()
         # Only an in-process, short-lived capture can be reused. Persisted
         # snapshot entries have no capture clock and cannot prove current state.
@@ -1779,6 +1779,15 @@ class DataManager:
             segment = stats['segments'].setdefault(key, {**t, 'duration': 0.0, 'count': 0})
             segment['duration'] += duration
             segment['count'] += 1
+            # A segment may contain many live tasks. Keep the latest
+            # task-side updated_on; the first task could be undated.
+            candidate, source = latest_task_update(t)
+            prior, _ = latest_task_update({
+                '_latest_update': segment.get('_latest_update'),
+                '_latest_update_basis': segment.get('_latest_update_basis')})
+            if candidate is not None and (prior is None or candidate > prior):
+                segment['_latest_update'] = candidate.isoformat()
+                segment['_latest_update_basis'] = source
         for stats in canonical_assigned.values():
             stats['segments'] = list(stats['segments'].values())
         return canonical_assigned
@@ -1827,11 +1836,14 @@ class DataManager:
                         days = max(0, (today - datetime.strptime(assigned, '%Y-%m-%d').date()).days) if assigned else 0
                         returned = metadata['ReturnedDate']
                         return_days = max(0, (today - datetime.strptime(returned, '%Y-%m-%d').date()).days) if returned else 0
+                        updated = metadata['UpdatedDate']
+                        update_days = max(0, (today - datetime.strptime(updated, '%Y-%m-%d').date()).days) if updated else 0
                         account = amounts.get('slicer') or self.scraper._get_username(amounts.get('slicer_id'))
                         assigned_records.append({
                             'User': canonical, 'ID': account, 'Stage': stage,
                             'Duration': amounts['duration'], 'Count': amounts['count'],
-                            **metadata, 'DaysAssigned': days, 'DaysReturned': return_days, 'IDs': account,
+                            **metadata, 'DaysAssigned': days, 'DaysReturned': return_days,
+                            'DaysUpdated': update_days, 'IDs': account,
                         })
             except Exception as error:
                 # Neither dated overview totals nor old ledger rows establish
@@ -1879,10 +1891,17 @@ class DataManager:
                 'Duration': 'sum',
                 'Count': 'sum',
                 'BatchID': lambda x: ', '.join([str(b) for b in x if b]),
+                # The per-segment latest task update is a color fallback,
+                # not an assignment or return event.
+                'UpdatedDate': 'max',
+                'DaysUpdated': 'min',
+                'UpdateDateBasis': lambda values: next(
+                    (value for value in values if value != 'Unknown'), 'Unknown'),
             })
             assigned_df['IDs'] = assigned_df['ID']
         else:
-            assigned_df = pd.DataFrame(columns=['User', 'ID', 'Stage', 'Duration', 'Count', 'AssignedDate', 'DaysAssigned', 'ReturnedDate', 'DaysReturned', 'BatchID', 'IDs'])
+            assigned_df = pd.DataFrame(columns=['User', 'ID', 'Stage', 'Duration', 'Count', 'AssignedDate', 'DaysAssigned', 'ReturnedDate', 'DaysReturned',
+                                               'UpdatedDate', 'DaysUpdated', 'UpdateDateBasis', 'BatchID', 'IDs'])
 
         res_df = pd.concat([pending_df, current_pending, assigned_df], ignore_index=True)
         res_df.attrs['assignment_errors'] = queue_errors
