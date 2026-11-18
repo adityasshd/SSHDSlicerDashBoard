@@ -52,6 +52,8 @@ def build_rework_ratio_chart(
     """
     if completion_state not in VALID_COMPLETION_STATES:
         raise ValueError(f"Invalid completion state: {completion_state!r}")
+    if selected_users == []:
+        return state_figure("No users selected.", is_dark)
 
     frame = checked_frame(
         ratio_df, ["User", "Total Batches"],
