@@ -121,7 +121,7 @@ def test_missing_person_status_is_a_gap_and_filters_keep_status_evidence():
     figure = build_rework_ratio_chart(frame, '', True)
     assert list(figure.data[0].y[:-1]) == ['A', 'B']
     assert [cell[-1] for cell in figure.data[0].customdata[0]] == [2, 0, 0, 0, 0]
-    assert [cell[-1] for cell in figure.data[0].customdata[1]] == [1, 0, 0, 0]
+    assert [cell[-1] for cell in figure.data[0].customdata[1]] == [1, 0, 0, 0, 0]
     filtered = build_rework_ratio_chart(frame, '', True, ['B'], True)
     assert list(filtered.data[0].y[:-1]) == ['B']
     assert 'Completed: 00:00:00' in filtered.data[0].customdata[0][0][10]
