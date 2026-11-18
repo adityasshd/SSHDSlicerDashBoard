@@ -14,12 +14,12 @@ from slicing_dashboard.reporting.dashboard_panels import frame_payload, panel_fr
 def fixture_data():
     batches = [
         {"batch_id": "A1", "batch_date": "2026-11-06", "status": "batch_completed",
-         "user": "A", "username": "account-a", "total_duration_seconds": 7200},
+         "user": "A", "username": "account-a", "return_count": 2, "total_duration_seconds": 7200},
         {"batch_id": "A2", "batch_date": "2026-11-07",
          "status": "batch_pending_auditor_review", "user": "A",
-         "username": "account-a", "total_duration_seconds": 14400},
+         "username": "account-a", "return_count": 2, "total_duration_seconds": 14400},
         {"batch_id": "B1", "batch_date": "2026-11-08", "status": "batch_completed",
-         "user": "B", "username": "account-b", "total_duration_seconds": 21600},
+         "user": "B", "username": "account-b", "return_count": 0, "total_duration_seconds": 21600},
     ]
     returns = [
         {"batch_id": "A1", "event_id": "return-1", "returned_at": "2026-11-06T10:00:00Z"},
@@ -52,7 +52,7 @@ def test_rework_batch_event_dedup_and_duration_conservation():
     assert frame["Total Duration (hrs)"].sum() == pytest.approx(12.0)
     tiers = rework_hours(frame)
     assert tiers == pytest.approx({"No Rework": 6.0, "1 Rework": 2.0,
-                                    "2 Reworks": 4.0, "3+ Reworks": 0.0})
+                                    "2 Reworks": 4.0, "3+ Reworks": 0.0, "Unknown": 0.0})
     assert sum(tiers.values()) == pytest.approx(frame["Total Duration (hrs)"].sum())
     assert sum(stack["total"] for stack in prepare_rework_stacks(frame).values()) == 3
 
@@ -73,7 +73,7 @@ def test_rework_matrix_matches_source_hours_for_each_state(state, expected_hours
     assert all(trace.showscale is False for trace in fig.data)
     assert fig.layout.meta['color_scope'] == 'per_column'
     assert sum(fig.layout.meta["column_totals"]) == pytest.approx(expected_hours)
-    for column in range(4):
+    for column in range(5):
         raw = [row[column][-1] for row in fig.data[0].customdata[:-1]]
         assert fig.layout.meta["column_totals"][column] == pytest.approx(sum(
             value for value in raw if value is not None))
@@ -105,9 +105,9 @@ def test_rework_toggle_callback_repaints_without_source_reads():
     complete_fig, _, _, _, _ = fn(request, packet, None, 0, "Completed", None, None, None, "/", None)
     pending_fig, _, _, _, _ = fn(request, packet, None, 0, "Pending approvals", None, None, None, "/", None)
     assert list(all_fig.data[0].x) == [
-        'No Rework', '1 Rework', '2 Reworks', '3+ Reworks']
+        'No Rework', '1 Rework', '2 Reworks', '3+ Reworks', 'Unknown']
     assert all(cell[-1] is not None for row in all_fig.data[0].customdata[:-1] for cell in row)
-    assert all(len(row) == 4 for row in all_fig.data[0].z)
+    assert all(len(row) == 5 for row in all_fig.data[0].z)
     assert sum(all_fig.layout.meta['column_totals']) == pytest.approx(12)
     assert heatmap_hours(complete_fig) == pytest.approx(8)
     assert heatmap_hours(pending_fig) == pytest.approx(4)
