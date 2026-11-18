@@ -90,10 +90,10 @@ def build_today_submissions_lollipop(output, is_dark=True):
                 'line': {'color': dark_edge, 'width': 2}},
         text=[format_seconds(value, compact=True) for value in totals],
         textposition='top center', textfont={'size': 11, 'color': line_color},
-        customdata=[[format_seconds(value), row['new'],
+        customdata=[[user, format_seconds(value),
                      format_seconds(row['old'] + row['same'])]
-                    for value, row in zip(totals, parsed)],
-        hovertemplate='<b>%{x}</b><br>Submitted video: %{customdata[0]}'
+                    for user, value, row in zip(users, totals, parsed)],
+        hovertemplate='<b>%{customdata[0]}</b><br>Submitted video: %{customdata[1]}'
                       '<br>Rework included: %{customdata[2]}<extra></extra>',
         showlegend=True,
     ))
