@@ -6,7 +6,7 @@ from slicing_dashboard.management.periods import today_iso
 from slicing_dashboard.plots.today_submissions_lollipop import (
     build_today_submissions_lollipop,
 )
-from slicing_dashboard.reporting.daily_output import submitted_video_output
+from slicing_dashboard.reporting.daily_output import submission_rework_counts
 
 
 def saved_today_submission_day(manager, trend=None, today=None):
@@ -57,5 +57,5 @@ def register_today_submissions(app, manager):
     def paint_today(day, selected, theme, pathname):
         if pathname not in (None, '/', '/dashboard'):
             raise dash.exceptions.PreventUpdate
-        evidence = submitted_video_output(day, selected, expected_date=today_iso())
+        evidence = submission_rework_counts(day, selected, expected_date=today_iso())
         return build_today_submissions_lollipop(evidence, (theme or 0) % 2 == 0)
