@@ -19,7 +19,7 @@ FRAME_COLUMNS = {
     'pending': ('User', 'Stage', 'Duration', 'Count', 'IDs'),
     'assigned': ('User', 'Stage', 'Duration', 'Count', 'IDs', 'ID', 'AssignedDate', 'DaysAssigned',
                  'AssignmentDateBasis', 'ReturnedDate', 'DaysReturned'),
-    'rework': ('User', 'Completion State', 'Total Batches', 'No Rework', '1 Rework', '2 Reworks', '3+ Reworks',
+    'rework': ('User', 'Completion State', 'Total Batches', 'No Rework', '1 Rework', '2 Reworks', '3+ Reworks', 'Unknown',
                '3+ Return Count', 'Tier Duration (hrs)', '3 Reworks',
                '4 Reworks', '5+ Reworks', '5+ Return Count', 'Reworked Once', 'Reworked Twice+',
                'Total Duration (hrs)', 'Avg Batch Duration (hrs)', 'Tier IDs'),
@@ -37,6 +37,8 @@ def panel_key(manager, kind, start, end, *, as_of_date=None):
     identity = [manager.scraper._base_url, manager.settings.admin_username]
     if kind == 'assigned':
         identity.append('return-date-v1')
+    if kind == 'rework':
+        identity.append('verified-return-tiers-with-unknown-v1')
     if kind == 'pending':
         identity.append('recovered-task-timing-v1')
     mapping = [manager.user_mapping, getattr(manager, 'user_mapping_full', {}),
