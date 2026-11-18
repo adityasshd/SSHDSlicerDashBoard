@@ -52,8 +52,12 @@ or an unrelated `updated_at` timestamp is not submission evidence.
 
 `total_submitted_video_seconds = new + old_rework + same_day_rework`
 
-The deferred duration-based lollipop proposal has four rows: total, new, old rework and same-day rework.
-The total is a parent measure; it must not be added to the other three.
+The current chart plots each user's total submitted VIDEO duration as a connected
+line and places Old Rework and Same-day Rework as separate lollipops.
+The two rework values are subsets of the line total, not extra hours. New
+video duration is the remaining difference and is included in the line.
+When the source is only a submitted-status snapshot, no such classification
+is asserted and no rework lollipops are drawn.
 
 The existing Daily Report's legacy `Total Duration` excludes old rework
 (it is `new + same-day`). The new lollipop intentionally uses the complete
