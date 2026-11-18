@@ -142,3 +142,51 @@ remains return-tier batch counts, not completed hours.
 This behavior is covered by a 69h-vs-150h regression fixture. Fixture values
 are illustrative and do not constitute a live-source verification of the
 user's current dashboard amount.
+
+
+## November 18 — recalled/unassigned batch history audit (read-only)
+
+Read-only examination of MongoDB `slicing_dashboard.batch_returns` and
+`slicing_dashboard.batches_master` exposed a real source-join gap:
+
+- Batch `ab_8f9a9dd6b51f486bbadc1ffe84745ff6` has **three distinct
+  observed return instants**, one on September 18 and two on November 4.
+  It has **no matching current batch-ledger record**. The saved return
+  documents were captured under `SSHD-Akash2` and `SSHD-Riya1`, with a
+  cross-viewer duplicate of the September return. The feed-viewer account is
+  **not evidence of the current or former owning assignee**.
+- Some retained `batch_unassigned` rows contain observed return counts yet
+  expose **zero tasks and zero video duration**. This is a lost current-batch
+  payload, not proof that the prior work duration was zero.
+- Across the saved historical return inventory, batches with 3+ observed
+  return occurrences included **41 currently completed**, **one currently
+  pending admin review**, **four currently unassigned**, and **one lacking a
+  ledger row**. These latest statuses cannot prove or refute a temporary
+  recall rule triggered after a particular number of reworks.
+
+Two separate bugs follow:
+
+1. The rework heatmap was ledger-first, so a batch missing from that ledger
+   could not appear at all. It also previously classified every non-completed
+   batch with a return as Pending Review, including `batch_unassigned`
+   and `batch_rework`. The two-status heatmap now admits **only** a real
+   completed or active review state; recalled/unassigned rows do not count as
+   pending review.
+2. Workflow's event-first monthly history already retained unlinked rows
+   in the all-members view, but filtered **all** such rows away when the
+   user selected an account because the current ledger member was missing.
+   It now permits discovering an unlinked batch through recorded
+   return-feed viewer accounts, labels it **Unlinked**, shows all observed
+   account IDs, and explicitly marks **owner unverified**. This is an audit
+   discovery method, NOT a basis for assigning completed work or return
+   blame to an operator.
+
+The workflow history continues to show **Other / Unlinked** separately from
+Completed and Pending Review, preserving the existing two-mode heatmap.
+Neither batch counts nor dates from missing ledger rows are converted to
+payable or approved duration. Permanent restoration of historical owner,
+status and nonzero duration requires immutable before/after batch captures or
+a trustworthy server-side task/batch assignment timeline; a current-only
+ledger cannot reconstruct them retroactively.
+
+No MongoDB mutation, synthetic duration, or production deployment was made.
