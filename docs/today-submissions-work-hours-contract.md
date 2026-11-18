@@ -1,4 +1,22 @@
-# Payable submitted-video duration — November 17, 2026
+# Submitted work evidence policy — November 17–18, 2026
+
+## Interim display decision (November 18)
+
+The main Dashboard now displays **only two task counts** for the selected
+India-local day: **Submitted today** (new + old rework + same-day rework)
+and **Rework submissions** (old + same-day rework). Rework submissions
+are already included in submitted today; do not add the two bars.
+
+The count-only plot needs a valid dated Daily submission report, per-user
+`New Tasks`, `Old Rework Tasks` and `Same-day Rework Tasks`, and
+matching user/date scope. It no longer needs video duration fields.
+An unavailable Daily capture or missing count stays **Unavailable**;
+current status, batch-return notices and whole-batch durations are not
+used as substitute submission events. There is no new source API permission
+and no claim of complete November submission counts.
+
+The rest of this document describes the retained payable-video-duration
+methodology and the original four-duration-row proposal, now deferred.
 
 ## Decision: count video duration, not screen or worklog time
 
@@ -24,7 +42,7 @@ or an unrelated `updated_at` timestamp is not submission evidence.
 
 `total_submitted_video_seconds = new + old_rework + same_day_rework`
 
-The lollipop has four rows: total, new, old rework and same-day rework.
+The deferred duration-based lollipop proposal has four rows: total, new, old rework and same-day rework.
 The total is a parent measure; it must not be added to the other three.
 
 The existing Daily Report's legacy `Total Duration` excludes old rework
