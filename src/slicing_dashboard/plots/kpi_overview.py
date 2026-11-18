@@ -10,7 +10,7 @@ from dash import html
 
 from slicing_dashboard.plots.theme import format_seconds
 from slicing_dashboard.reporting.kpi_overview import ordered_kpis
-from slicing_dashboard.reporting.rework_tiers import TIERS
+from slicing_dashboard.reporting.rework_tiers import TIERS, DISPLAY_TIERS
 
 
 def _number(value, default=0.0):
@@ -93,8 +93,8 @@ def _hours(value):
 
 def build_rework_hours_metric(hours=None, status=None, is_dark=True):
     """Render duration shares from the existing, scoped rework capture."""
-    colors = [f'var(--kpiu-series-{index})' for index in range(1, 5)]
-    labels = ('No Rework', '1 Rework', '2 Reworks', '3+ Reworks')
+    colors = [f'var(--kpiu-series-{index})' for index in range(1, 5)] + ['#8b929a']
+    labels = DISPLAY_TIERS
     returned = [_number((hours or {}).get(tier), None) for tier in TIERS[1:]]
     returned_total = sum(returned) if all(value is not None for value in returned) else None
     return [
@@ -103,9 +103,11 @@ def build_rework_hours_metric(hours=None, status=None, is_dark=True):
             html.Strong('Returned batches: ' + _hours(returned_total), className='kpiu-row-value'),
         ], className='kpiu-row-heading'),
         _parts([(label, (hours or {}).get(tier), color)
-                for label, tier, color in zip(labels, TIERS, colors)],
+                for label, tier, color in zip(labels, DISPLAY_TIERS, colors)],
                'Original batch duration by recorded return count', format_value=_hours),
         html.Div('Original video duration counted once per batch; not additional hours spent reworking · HH:MM:SS', className='kpiu-meta'),
+        html.Div('Unknown tier: ' + _hours((hours or {}).get('Unknown')) +
+                 ' · excluded from the known returned-batch total.', className='kpiu-meta'),
         html.Div(status, className='kpiu-meta') if status else None,
     ]
 
