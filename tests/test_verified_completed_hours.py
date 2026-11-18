@@ -106,7 +106,9 @@ def test_rework_callback_switches_between_source_hours_and_original_batch_exposu
     exposure, _, _, _, _ = fn(request, rework, None, 0, 'Completed',
                                  completed, None, None, '/', None)
     assert exposure.layout.meta['column_totals'][0] == 1
-    assert exposure.layout.meta['value_unit'] == 'Batches'
+    assert exposure.layout.meta['value_unit'] == 'mixed'
+    assert exposure.layout.meta['verified_completed_seconds'] == pytest.approx(227009.866)
+    assert exposure.layout.meta['column_totals'][-1] * 3600 == pytest.approx(227009.866)
     assert 'Duration' not in exposure.data[0].hovertemplate
     assert exposure.layout.title.subtitle.text is None
     # Missing or wrong-period completion must not substitute the 150-hour cohort.
@@ -151,7 +153,7 @@ def test_completed_tier_heatmap_uses_689_verified_hours_not_150_batch_hours():
     request = {'id': 'p689', 'start': '2026-11-01', 'end': '2026-11-18'}
 
     figure, _, overview, _, _ = paint(
-        request, batch_packet, None, None, 0, 'Completed',
+        request, batch_packet, None, 0, 'Completed',
         hours_packet, None, None, '/', None)
     assert list(figure.data[0].x) == [
         'No Rework', '1 Rework', '2 Reworks', '3+ Reworks', 'Unknown',
@@ -172,7 +174,7 @@ def test_completed_tier_heatmap_uses_689_verified_hours_not_150_batch_hours():
     manager.get_batch_rework_ratio_df.assert_not_called()
 
     only_b, _, overview_b, _, _ = paint(
-        request, batch_packet, None, ['B'], 0, 'Completed',
+        request, batch_packet, ['B'], 0, 'Completed',
         hours_packet, None, None, '/', None)
     assert only_b.layout.meta['verified_completed_seconds'] == 329 * 3600
     assert only_b.layout.meta['column_totals'][-1] == 329
@@ -192,7 +194,7 @@ def test_completed_hours_still_render_when_batch_tier_capture_is_missing():
                   'Completed Tasks': 3000}
              ]), 'completion')}
     figure, _, overview, _, _ = paint(
-        request, None, None, None, 0, 'Completed',
+        request, None, None, 0, 'Completed',
         hours, None, None, '/', None)
     assert figure.layout.meta['completed_seconds'] == pytest.approx(689 * 3600)
     assert figure.layout.meta['column_totals'] == [pytest.approx(689)]
