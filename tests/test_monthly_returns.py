@@ -157,3 +157,101 @@ def test_no_bad_month_scope_or_ambiguous_batch_identity():
     with pytest.raises(ValueError, match='Duplicate batch identity'):
         monthly_return_history([batches[0], batches[0]], events,
                                '2026-11-01', '2026-11-17')
+
+
+def test_orphan_return_batch_remains_visible_under_akash_viewer_filter():
+    """A 3-return recalled-looking batch has no ledger; viewer != owner."""
+    orphan = 'ab_8f9a9dd6b51f486bbadc1ffe84745ff6'
+    events = [
+        {**returned(orphan, '2026-09-18T17:33:21', viewer=14234),
+         'canonical_user': 'Akash', 'username': 'SSHD-Akash2'},
+        {**returned(orphan, '2026-09-18T17:33:21', viewer=7413),
+         'canonical_user': 'Riya', 'username': 'SSHD-Riya1'},
+        {**returned(orphan, '2026-11-04T15:17:36', viewer=7413),
+         'canonical_user': 'Riya', 'username': 'SSHD-Riya1'},
+        {**returned(orphan, '2026-11-04T15:22:17', viewer=14234),
+         'canonical_user': 'Akash', 'username': 'SSHD-Akash2'},
+    ]
+    kwargs = dict(start='2026-11-01', end='2026-11-18',
+                  resolve=lambda row: row['canonical_user'])
+    all_members = monthly_return_history([], events, **kwargs)
+    akash = monthly_return_history([], events, selected_users=['Akash'], **kwargs)
+    riya = monthly_return_history([], events, selected_users=['Riya'], **kwargs)
+    unrelated = monthly_return_history([], events, selected_users=['Priya'], **kwargs)
+    assert all_members['summary']['observed_returns'] == 2
+    assert akash['summary']['observed_returns'] == 2
+    assert riya['summary']['observed_returns'] == 2
+    assert unrelated['summary']['observed_returns'] == 0
+    assert akash['summary']['unlinked_batches'] == 1
+    assert akash['summary']['unlinked_viewer_match_batches'] == 1
+    row = akash['batches'][0]
+    assert row['Batch'] == orphan
+    assert row['Latest Status'] == 'Other / Unlinked'
+    assert row['Ledger Linked'] is False
+    assert row['Member'] == 'Unlinked'
+    assert row['Total Observed Returns Through End'] == 3
+    assert row['Returns This Month'] == 2
+    assert 'SSHD-Akash2 [14234]' in row['Observed Accounts']
+    assert 'SSHD-Riya1 [7413]' in row['Observed Accounts']
+    assert row['Owner Evidence'] == 'Unverified — return-feed viewer only'
+    assert akash['daily'][3]['Other / Unlinked'] == 2
+
+
+def test_unassigned_batch_remains_in_monthly_history_but_not_pending_heatmap():
+    from slicing_dashboard.processing.batch_ratios import batch_ratios
+    from slicing_dashboard.processing.batch_return_history import reconcile_batch_returns
+
+    unassigned = {**batch('recalled', 'Akash', 'batch_unassigned'),
+                  'username': 'SSHD-Akash2', 'return_count': 3,
+                  'total_duration_seconds': 0}
+    complete = {**batch('legitimate', 'Akash', 'batch_completed'),
+                'username': 'SSHD-Akash2', 'return_count': 3,
+                'total_duration_seconds': 3600}
+    entries = [
+        {**returned(name, f'2026-11-04T{hour}:00:00+05:30', viewer=14234),
+         'canonical_user': 'Akash', 'username': 'SSHD-Akash2'}
+        for name in ('recalled', 'legitimate')
+        for hour in ('09', '10', '11')
+    ]
+    matrix = batch_ratios([unassigned, complete], entries,
+                          '2026-11-01', '2026-11-18',
+                          lambda row: row['canonical_user'])
+    assert matrix['Total Batches'].sum() == 1
+    assert matrix.iloc[0]['Completion State'] == 'Completed'
+    assert matrix.iloc[0]['3+ Reworks'] == 1
+    report = monthly_return_history(
+        [unassigned, complete], entries,
+        '2026-11-01', '2026-11-18',
+        resolve=lambda row: row['canonical_user'],
+        selected_users=['Akash'])
+    assert report['summary']['observed_returns'] == 6
+    assert report['summary']['completed_state_returns'] == 3
+    assert report['summary']['pending_review_state_returns'] == 0
+    assert report['summary']['other_or_unlinked_returns'] == 3
+    recalled = next(row for row in report['batches'] if row['Batch'] == 'recalled')
+    assert recalled['Member'] == 'Akash'
+    assert recalled['Latest Status'] == 'Other / Unlinked'
+    assert recalled['Owner Evidence'] == 'Last saved assignee — batch unassigned'
+    assert recalled['Total Observed Returns Through End'] == 3
+    assert reconcile_batch_returns([unassigned, complete], entries)['summary'][
+        'distinct_observed_returns'] == 6
+
+
+def test_workflow_ui_shows_unlinked_akash_batch_under_selected_account():
+    orphan = 'missing-ledger'
+    events = [
+        {**returned(orphan, '2026-11-04T12:00:00+05:30', viewer=14234),
+         'canonical_user': 'Akash', 'username': 'SSHD-Akash2'},
+    ]
+    manager = SimpleNamespace(
+        _batches_master_cache={}, _batch_returns_cache=events,
+        _batch_canonical_name=lambda row: row.get('canonical_user'),
+    )
+    figure, summary, rows = render_monthly_return_history(
+        manager, ['Akash'], 0, today='2026-11-18')
+    assert figure.layout.meta['total_observed'] == 1
+    assert len(rows) == 1
+    assert rows[0]['Ledger Linked'] is False
+    assert rows[0]['Member'] == 'Unlinked'
+    assert rows[0]['Observed Accounts'] == 'SSHD-Akash2 [14234]'
+    assert 'owner unverified' in str(summary)
