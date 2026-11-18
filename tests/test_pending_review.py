@@ -96,7 +96,7 @@ def test_source_next_day_is_included_at_india_evening_boundary():
 def test_slow_old_response_cannot_overwrite_or_return_instead_of_new_capture():
     cache = PendingReviewCapture()
     started, release = Event(), Event()
-    def source(scraper, end):
+    def source(scraper, end, **_kwargs):
         if scraper == 'old':
             started.set()
             assert release.wait(3)
@@ -116,7 +116,7 @@ def test_rollover_does_not_join_a_previous_day_request():
     cache = PendingReviewCapture()
     started, release = Event(), Event()
     end = {'date': '2026-10-07'}
-    def source(scraper, day):
+    def source(scraper, day, **_kwargs):
         if day == '2026-10-07':
             started.set()
             assert release.wait(3)
