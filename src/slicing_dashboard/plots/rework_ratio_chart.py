@@ -50,6 +50,11 @@ def build_rework_ratio_chart(
     Completed hours are not attributed to any return tier without task-level
     task→batch evidence. All five tier columns stay in BATCH units.
     """
+    if ratio_df is not None and 'Verified Tier Duration (hrs)' in ratio_df.columns:
+        return _build_verified_hours(ratio_df, is_dark, completion_state,
+                                     selected_users if selected_users is not None else
+                                     (effective_users if is_filtering else None),
+                                     completed_evidence)
     if completion_state not in VALID_COMPLETION_STATES:
         raise ValueError(f"Invalid completion state: {completion_state!r}")
     if selected_users == []:
@@ -219,4 +224,98 @@ def build_rework_ratio_chart(
                    else 'return_tier_batch_counts'),
     })
     figure.update_layout(meta=meta)
+    return figure
+
+
+def _build_verified_hours(frame, is_dark, completion_state, selected, completed_evidence):
+    """Duration-only chart. No original batch counts or whole-batch proxies."""
+    from math import isfinite
+
+    if completion_state == "All":
+        return state_figure("Select Completed or Pending Review; their time scopes differ.", is_dark)
+    if completion_state not in ("Completed", "Pending approvals"):
+        raise ValueError("Invalid duration scope")
+    if selected == []:
+        return state_figure("No users selected.", is_dark)
+
+    rows = frame[frame["Completion State"] == completion_state].copy()
+    if selected is not None:
+        rows = rows[rows["User"].isin(selected)]
+    rows = rows[rows["Verified Hours Available"] == True]  # noqa: E712
+    if rows.empty:
+        return state_figure("Verified video-duration evidence unavailable for this view.", is_dark)
+    if rows.duplicated(["User"]).any():
+        raise ValueError("Duplicate user duration records")
+
+    tiers = list(DISPLAY_TIERS)
+    by_user = {}
+    for row in rows.to_dict("records"):
+        captured = row.get("Verified Tier Duration (hrs)")
+        if not isinstance(captured, dict):
+            raise ValueError("Missing verified duration breakdown")
+        values = []
+        for tier in tiers:
+            val = captured.get(tier)
+            if isinstance(val, bool) or not isinstance(val, (int, float)) or not isfinite(val) or val < 0:
+                raise ValueError("Invalid verified duration tier")
+            values.append(float(val))
+        total = float(row["Verified Total Seconds"])
+        if abs(sum(values) * 3600 - total) > 0.51:
+            raise ValueError("Verified tier durations do not conserve source video hours")
+        by_user[row["User"]] = values
+
+    # The independent Completed Hours panel may refresh after the archived
+    # evidence capture. Never hide newly completed time by reusing a smaller
+    # archived number: assign only the unlinked increase to Unknown.
+    if completion_state == "Completed" and completed_evidence and completed_evidence.get("available"):
+        for item in completed_evidence.get("rows", []):
+            name = item["User"]
+            if selected is not None and name not in selected:
+                continue
+            raw = float(item["seconds"])
+            existing = sum(by_user.get(name, [0.] * 5)) * 3600
+            if raw + 0.51 < existing:
+                return state_figure("Completed source and archive captures disagree. Refresh both charts.", is_dark)
+            if raw > existing + 0.51:
+                by_user.setdefault(name, [0.] * 5)[4] += (raw - existing) / 3600
+
+    if not by_user:
+        return state_figure("No verified video duration for this selection.", is_dark)
+    users = sorted(by_user, key=lambda name: (-sum(by_user[name]), str(name).casefold()))
+    hours, labels, hover = [], [], []
+    for user in users:
+        values = by_user[user]
+        hours.append(values)
+        labels.append([format_seconds(value * 3600, compact=True) for value in values])
+        hover.append([[escape(str(user)), escape(tier), format_seconds(value * 3600)]
+                      for tier, value in zip(tiers, values)])
+    totals = [sum(row[column] for row in hours) for column in range(len(tiers))]
+    hours.append(totals)
+    labels.append([format_seconds(value * 3600, compact=True) for value in totals])
+    hover.append([["Total", escape(tier), format_seconds(value * 3600)]
+                  for tier, value in zip(tiers, totals)])
+    users.append("<b>Total</b>")
+    scope = ("Completed paid video · selected date range" if completion_state == "Completed"
+             else "Current pending Leader / Auditor / Admin review")
+    figure = intensity_chart(
+        users, tiers, {"Hours": (hours, labels)}, hover,
+        "<b>%{customdata[0]}</b><br>%{customdata[1]}<br>%{customdata[2]}"
+        "<br>Observed lifetime batch returns · Unknown if unlinked<extra></extra>",
+        "Rework intensity · video hours", is_dark,
+        scope + " · return tier by historical/stable batch evidence", show_counts=False,
+    )
+    metadata = dict(figure.layout.meta or {})
+    metadata.update({
+        "value_unit": "Hours",
+        "column_units": ["hours"] * len(tiers),
+        "metric": "verified_video_duration_seconds_by_observed_lifetime_return_tier",
+        "verified_total_seconds": sum(totals) * 3600,
+        "tier_duration_seconds": [value * 3600 for value in totals],
+        "unknown_duration_seconds": totals[-1] * 3600,
+        "attribution": "archived_batch_candidates" if completion_state == "Completed"
+                       else "unique_live_queue_batch_candidates",
+        "direct_task_to_batch_proof": False,
+        "date_scope": "selected_period" if completion_state == "Completed" else "current_queue",
+    })
+    figure.update_layout(meta=metadata)
     return figure
