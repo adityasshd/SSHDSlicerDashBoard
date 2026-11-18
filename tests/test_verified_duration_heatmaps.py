@@ -166,3 +166,42 @@ def test_panel_storage_preserves_optional_verified_hours_and_unavailable_cells()
     restored = panel_frame({"data": data})
     assert restored.loc[0, "Verified Total Seconds"] == 6300
     assert pd.isna(restored.loc[1, "Verified Hours Available"])
+
+
+def test_partial_assigned_queue_preserves_known_hours_and_warning():
+    frame = pd.DataFrame([
+        {"User": "Akash", "ID": "SSHD-Akash11", "Stage": "New Assigned",
+         "Duration": 3600.0, "Count": 20, "AssignedDate": ""},
+    ])
+    frame.attrs["assignment_errors"] = ["Rework Assigned: TimeoutError"]
+    data = frame_payload(frame, "assigned")
+    assert data["queue_complete"] is False
+    assert data["source_warnings"] == ["Rework Assigned: TimeoutError"]
+    recovered = panel_frame({"data": data})
+    assert recovered["Duration"].sum() == pytest.approx(3600)
+    assert recovered.attrs["assignment_errors"] == ["Rework Assigned: TimeoutError"]
+
+
+def test_archived_completed_batch_duration_is_not_zeroed_by_unrelated_queues(monkeypatch):
+    from types import SimpleNamespace
+    from slicing_dashboard.reporting import verified_duration_heatmaps as module
+
+    class Manager:
+        @staticmethod
+        def _get_reporting_name(uid, username):
+            return "Aditya"
+
+    store = SimpleNamespace()
+    day = {"display_date": "2026-11-10", "captured_at": "2026-11-18T13:00:00Z",
+           "items": [{"user_id": 4912, "username": "SSHD-Adi",
+                      "completed_count": 65, "completed_duration_seconds": 3649}]}
+    monkeypatch.setattr(module, "_efficiency_days",
+                        lambda store, start, end: {"2026-11-10": day})
+    monkeypatch.setattr(module, "_archive_states", lambda store, start, end: [
+        {"bid": "ab_test", "uid": "4912", "count": "65", "value": "3649",
+         "bench": "0", "completedPeak": 64,
+         "statuses": ["batch_completed"]}])
+    result = module.completed_duration_rows(
+        Manager(), "2026-11-10", "2026-11-10", store, {"ab_test": "No Rework"})
+    assert result["Aditya"]["No Rework"] == pytest.approx(3649)
+    assert sum(result["Aditya"].values()) == pytest.approx(3649)
