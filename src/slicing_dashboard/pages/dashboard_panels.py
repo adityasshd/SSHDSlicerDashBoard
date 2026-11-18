@@ -64,10 +64,20 @@ def render_panel(kind, request, saved, live, selected, theme, roster, show_count
         # completion report can still show its full hour total. Do not let the
         # missing batch record hide valid paid video hours.
         if kind == 'rework' and completion_state == 'Completed':
-            from slicing_dashboard.plots.completed_hours_heatmap import (
-                build_completed_hours_heatmap, completion_total)
+            from slicing_dashboard.plots.completed_hours_heatmap import completion_total
+            from slicing_dashboard.plots.rework_ratio_chart import build_rework_ratio_chart
+            import pandas as pd
             if completion_total(completed_evidence, selected) is not None:
-                return build_completed_hours_heatmap(completed_evidence, dark, selected, compact=True), status
+                # Preserve the five video-hour tiers even while rework source
+                # is temporarily unavailable. Only Unknown receives the
+                # independent, source-dated completed duration.
+                fallback = pd.DataFrame(
+                    columns=['User', 'Completion State',
+                             'Verified Tier Duration (hrs)'])
+                return build_rework_ratio_chart(
+                    fallback, request['start'], dark,
+                    selected_users=selected, completion_state='Completed',
+                    completed_evidence=completed_evidence), status
         content = (dbc.Alert(status, color='secondary') if kind == 'summary'
                    else state_figure(status, dark))
         return content, status
