@@ -115,3 +115,30 @@ A cached batch-master `last_updated` is a **Collector sync timestamp**, not
 an upstream task event; it must never be used for this fallback. Grouped live
 task segments use their most recent task-side update. Viewer snapshots
 require a fresh assigned panel capture for the new fields.
+
+
+## November 18 — Completed video-hour reconciliation
+
+The **Completed** view now displays five return-tier **batch count** columns
+and an additional **Completed hours** column. This final column is calculated
+from exact-range per-user `completed_duration_seconds` in the independently
+captured annotator efficiency report, matching the Completed Hours KPI for
+the same date range and selected users.
+
+The user-reported discrepancy was approximately **69 verified completed
+video hours versus 150 original whole-batch hours**. The latter is a different
+population and must not be substituted for task completion.
+
+Completed-video hours **cannot yet be attributed to individual return tiers**
+without a reliable task-to-batch completion link. A separate hours column
+preserves the true total while leaving No / 1 / 2 / 3+ / Unknown tier values
+as batch counts only. The total row measures exact completed duration,
+including users who have completed output but no matching current-status batch
+in this cohort. If the tier capture fails, a valid completed-hour source still
+renders; if task completion evidence is missing, the hours column is
+Unavailable rather than using original batch hours. The Pending Review view
+remains return-tier batch counts, not completed hours.
+
+This behavior is covered by a 69h-vs-150h regression fixture. Fixture values
+are illustrative and do not constitute a live-source verification of the
+user's current dashboard amount.
