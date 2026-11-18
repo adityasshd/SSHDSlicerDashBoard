@@ -76,3 +76,27 @@ filters use the *current assigned member*, not the unknown reviewer.
 
 Everything is implemented and tested on a feature branch; there is no
 production merge or MongoDB mutation in this change.
+
+
+## November 18 evidence-only return-tier classification (development branch)
+
+The Dashboard's **rework tier heatmap** has a fifth column, **Unknown**.
+Known tiers No / 1 / 2 / 3+ are assigned only when the retained unique
+return-event occurrences agree with the latest batch ledger's
+`return_count` and every identifiable return timestamp parses.
+Unmatched or missing ledger counts, extra/missing return events, and
+unparseable return records tied to a batch move that batch to Unknown.
+For a selected historical cutoff, compare the full saved occurrence count
+to the current ledger for completeness, then use only dated observations
+through that cutoff to choose the verified tier.
+
+Unknown contains the **number of affected batches and their original
+video duration**, not invented rework labor or approved task hours.
+Known tier totals exclude Unknown, while all five columns still reconcile
+to the included batch inventory. Legacy saved rework captures cannot certify
+Unknown classification; they need a new capture. Because the upstream
+history API lacks full pagination, a numerical ledger match increases
+confidence but does not independently establish lifetime completeness.
+
+This change is **feature-branch-only**, not an upstream data correction,
+production deployment, or historical settlement backfill.
