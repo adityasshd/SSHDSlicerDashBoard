@@ -54,12 +54,16 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool, show_counts=F
     """
     t = theme_ctx(is_dark)
     assigned_df = checked_frame(assigned_df, ['User', 'Stage', 'Duration'], ['Duration', 'Count'])
-    errors = assigned_df.attrs.get('assignment_errors', [])
+    errors = assigned_df.attrs.get('assignment_errors', []) or []
+    # Upstream exception *types* and stage labels are safe to display. No
+    # requests, credentials or server response bodies are surfaced.
+    missing_stages = '; '.join(str(error)[:64] for error in errors)
 
     if assigned_df.empty:
         fig = go.Figure()
         fig.add_annotation(
-            text="Current assignment data unavailable; refresh to retry" if errors else "No assigned work active",
+            text=("Current assignment queues unavailable: " + missing_stages
+                  if errors else "No assigned work active"),
             showarrow=False,
             font={"size": 14, "color": t["font_color"]},
         )
@@ -293,6 +297,6 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool, show_counts=F
     )
 
     if errors:
-        fig.add_annotation(text="Current assignment data incomplete; refresh to retry",
+        fig.add_annotation(text="Partial assignment inventory: " + missing_stages,
                            x=.5, y=1.1, xref='paper', yref='paper', showarrow=False)
     return add_bar_total_labels(fig, 'h', count_index=2 if show_counts else None)
