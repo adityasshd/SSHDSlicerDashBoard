@@ -101,10 +101,9 @@ def test_rework_splits_same_person_and_preserves_saved_state_and_unique_returns(
         assert list(trace.y[:-1]) == ['Person']
         assert [cell[-1] for cell in trace.customdata[0]] == [1, 1, 0, 0, 0]
         assert trace.customdata[0][0][1] == 2
-        assert trace.customdata[0][0][6] == '01:00:00'
-        assert trace.customdata[0][1][6] == '01:00:00'
-        assert 'Completed: 01:00:00' in trace.customdata[0][0][10]
-        assert 'Pending approvals: 01:00:00' in trace.customdata[0][1][10]
+        assert 'Completed: 1 batches' in trace.customdata[0][0][6]
+        assert 'Pending approvals: 1 batches' in trace.customdata[0][1][6]
+        assert 'Duration' not in trace.hovertemplate
         figure.to_json()
     # A person with no pending batches still has only one stack.
     figure = build_rework_ratio_chart(frame.iloc[:1], '2026-10-01', True)
@@ -124,6 +123,6 @@ def test_missing_person_status_is_a_gap_and_filters_keep_status_evidence():
     assert [cell[-1] for cell in figure.data[0].customdata[1]] == [1, 0, 0, 0, 0]
     filtered = build_rework_ratio_chart(frame, '', True, ['B'], True)
     assert list(filtered.data[0].y[:-1]) == ['B']
-    assert 'Completed: 00:00:00' in filtered.data[0].customdata[0][0][10]
-    assert 'Pending approvals: 01:00:00' in filtered.data[0].customdata[0][0][10]
+    assert 'Completed: 0 batches' in filtered.data[0].customdata[0][0][6]
+    assert 'Pending approvals: 1 batches' in filtered.data[0].customdata[0][0][6]
     pd.testing.assert_frame_equal(frame, original)
