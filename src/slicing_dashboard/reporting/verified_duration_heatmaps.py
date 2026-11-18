@@ -297,9 +297,13 @@ def pending_duration_rows(manager, batches, tiers, task_records):
             bid = batch.get("batch_id")
             if key.startswith("stable:") and key[7:] != str(bid):
                 continue
-            if (integer(batch.get("production_task_count", 0)) == count and
-                    abs(seconds(batch.get("total_duration_seconds", 0)) - value) <= TOLERANCE_SECONDS and
-                    integer(batch.get("benchmark_count", 0)) == 0):
+            try:
+                valid = (integer(batch.get("production_task_count", 0)) == count and
+                         abs(seconds(batch.get("total_duration_seconds", 0)) - value) <= TOLERANCE_SECONDS and
+                         integer(batch.get("benchmark_count", 0)) == 0)
+            except (ValueError, TypeError, OverflowError):
+                valid = False
+            if valid:
                 matches.append(bid)
         # A legacy number is not a stable ID. Require full cohort, same owner,
         # same stage, unique count+duration, and a verified return ledger.
@@ -332,16 +336,29 @@ def with_verified_duration(manager, ratio_frame, start, end):
     if isinstance(returns, dict):
         returns = list(returns.values())
     tiers = _return_tiers(batches, returns, not getattr(manager, "_returns_source_error", None))
-    completed = completed_duration_rows(manager, start, end, store, tiers)
-    capture = capture_for(manager).read(manager.scraper)
-    if capture.get("error") or "tasks" not in capture:
-        raise ValueError("Live pending task queue unavailable; no batch-duration fallback")
-    pending = pending_duration_rows(manager, batches, tiers, capture["tasks"])
+    # Independent source failures must not hide another verified duration
+    # source. Completed fallback uses the separate source-date completion
+    # panel as Unknown; Pending never falls back to whole-batch inventory.
+    failures = []
+    try:
+        completed = completed_duration_rows(manager, start, end, store, tiers)
+    except Exception as error:
+        completed = {}
+        failures.append("Completed archive: " + type(error).__name__)
+    try:
+        capture = capture_for(manager).read(manager.scraper)
+        if capture.get("error") or "tasks" not in capture:
+            raise ValueError("Live pending task queue unavailable")
+        pending = pending_duration_rows(manager, batches, tiers, capture["tasks"])
+    except Exception as error:
+        pending = {}
+        failures.append("Pending task queue: " + type(error).__name__)
     additions = list(_state_rows(completed, "Completed")) + list(_state_rows(pending, "Pending approvals"))
-    fields = ["Verified Tier Duration (hrs)", "Verified Total Seconds", "Verified Hours Available"]
+    fields = ["Verified Tier Duration (hrs)", "Verified Total Seconds", "Verified Hours Available", "Verified Source Warning"]
     frame = ratio_frame.copy()
     for key in fields:
         frame[key] = None
+    frame["Verified Source Warning"] = "; ".join(failures)
     existing = {(row["User"], row["Completion State"]): index for index, row in frame.iterrows()}
     new_rows = []
     for row in additions:
@@ -353,6 +370,8 @@ def with_verified_duration(manager, ratio_frame, start, end):
         else:
             new_rows.append(row)
     if new_rows:
-        frame = pd.concat([frame, pd.DataFrame(new_rows)], ignore_index=True)
+        extra = pd.DataFrame(new_rows)
+        extra["Verified Source Warning"] = "; ".join(failures)
+        frame = pd.concat([frame, extra], ignore_index=True)
     # Explicit unavailability, not zero, for missing known user/state cells.
     return frame
