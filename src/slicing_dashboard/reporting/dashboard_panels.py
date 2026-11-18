@@ -23,7 +23,8 @@ FRAME_COLUMNS = {
     'rework': ('User', 'Completion State', 'Total Batches', 'No Rework', '1 Rework', '2 Reworks', '3+ Reworks', 'Unknown',
                '3+ Return Count', 'Tier Duration (hrs)', '3 Reworks',
                '4 Reworks', '5+ Reworks', '5+ Return Count', 'Reworked Once', 'Reworked Twice+',
-               'Total Duration (hrs)', 'Avg Batch Duration (hrs)', 'Tier IDs'),
+               'Total Duration (hrs)', 'Avg Batch Duration (hrs)', 'Tier IDs',
+               'Verified Tier Duration (hrs)', 'Verified Total Seconds', 'Verified Hours Available'),
 }
 SUM_FIELDS = ('total_approved_duration', 'prev_approved_duration',
               'total_pending_duration', 'leader_review_duration', 'auditor_review_duration',
@@ -39,7 +40,7 @@ def panel_key(manager, kind, start, end, *, as_of_date=None):
     if kind == 'assigned':
         identity.append('return-date-and-updated-on-fallback-v2')
     if kind == 'rework':
-        identity.append('verified-return-tier-batch-counts-v2')
+        identity.append('verified-video-duration-tier-hours-v1')
     if kind == 'pending':
         identity.append('recovered-task-timing-v1')
     mapping = [manager.user_mapping, getattr(manager, 'user_mapping_full', {}),
@@ -119,7 +120,8 @@ def frame_payload(frame, kind):
     required = (['User', 'Completed Duration'] if kind == 'completion' else
                 ['User', 'Total Batches'] if kind == 'rework' else ['User', 'Stage', 'Duration'])
     labels = {'User', 'Stage', 'IDs', 'ID', 'AssignedDate', 'ReturnedDate', 'AssignmentDateBasis',
-              'Tier IDs', 'Tier Duration (hrs)', 'Completion State', 'UpdateDateBasis'}
+              'Tier IDs', 'Tier Duration (hrs)', 'Completion State', 'UpdateDateBasis',
+              'Verified Tier Duration (hrs)', 'Verified Hours Available'}
     columns = [column for column in FRAME_COLUMNS[kind] if column in frame]
     frame = checked_frame(frame, required, [column for column in columns if column not in labels])
     frame = frame[columns]
@@ -169,7 +171,11 @@ def capture_panel(manager, kind, start, end, force=False):
             elif kind == 'completion':
                 data = frame_payload(manager.get_user_breakdown_df(start, end, force), kind)
             elif kind == 'rework':
-                data = frame_payload(manager.get_batch_rework_ratio_df(start, end, force_refresh=force), kind)
+                from slicing_dashboard.reporting.verified_duration_heatmaps import with_verified_duration
+                ratios = manager.get_batch_rework_ratio_df(start, end, force_refresh=force)
+                if ratios.attrs.get('chart_error'):
+                    raise ValueError('Return history unavailable')
+                data = frame_payload(with_verified_duration(manager, ratios, start, end), kind)
             elif kind == 'pending':
                 data = frame_payload(manager.get_pending_review_df(force_refresh=force), kind)
             elif kind == 'assigned':
