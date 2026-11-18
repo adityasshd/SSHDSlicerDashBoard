@@ -16,7 +16,7 @@ def intensity_chart(users, categories, metrics, customdata, hovertemplate, title
     # Charts may show original video hours or observed batch counts. Never
     # normalize a duration when the visible metric is a count.
     values, labels = metrics[value_key]
-    counts = metrics['Batches'][0] if 'Batches' in metrics else values
+    counts = next((matrix[0] for label, matrix in metrics.items() if label != value_key), values)
     has_total = bool(users and users[-1] == '<b>Total</b>')
     colored_values = values[:-1] if has_total else values
     # Each column measures its own relative intensity. A large value in one
