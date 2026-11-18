@@ -97,10 +97,18 @@ def build_today_submissions_lollipop(output, is_dark=True):
         textposition='top center', textfont={'size': 11, 'color': line_color},
         customdata=[[user, format_seconds(value),
                      format_seconds(row['old'] + row['same']) if classified
-                     else 'Not verified in this snapshot']
+                     else 'Not verified in this snapshot',
+                     format_seconds(row['new']) if classified else 'Not verified']
                     for user, value, row in zip(users, totals, parsed)],
-        hovertemplate='<b>%{customdata[0]}</b><br>Submitted video: %{customdata[1]}'
-                      '<br>Rework included: %{customdata[2]}<extra></extra>',
+        hovertemplate=(
+            '<b>%{customdata[0]}</b><br>Submitted video: %{customdata[1]}'
+            '<br>Fresh videos: %{customdata[3]}'
+            '<br>Rework included: %{customdata[2]}<extra></extra>'
+        ) if classified else (
+            '<b>%{customdata[0]}</b><br>Submitted-status video: %{customdata[1]}'
+            '<br>NOT confirmed as submitted today'
+            '<br>Rework classification unavailable<extra></extra>'
+        ),
         showlegend=True,
     ))
 
