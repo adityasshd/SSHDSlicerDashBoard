@@ -124,3 +124,113 @@ def test_retired_pyramid_callback_cannot_reenter_dashboard_hours():
     assert 'kpi-approved-value.children' not in handlers or any(
         'dashboard-saved-completion' in str(callback.get('inputs'))
         for key, callback in handlers.items() if 'kpi-approved-value' in key)
+
+
+def test_completed_tier_heatmap_uses_689_verified_hours_not_150_batch_hours():
+    """Regression: source task completion must reconcile, even outside batch cohort."""
+    namespace, manager = application_namespace()
+    handlers = namespace['app'].callback_map
+    callback = next(value for key, value in handlers.items()
+                    if 'rework-ratio-chart.figure' in key and '@' not in key)
+    paint = callback['callback'].__wrapped__
+
+    batches = [dict(batch_id='legacy-batch', batch_date='2026-11-04',
+                    username='A', user='A', status='batch_completed',
+                    return_count=0, total_duration_seconds=150 * 3600)]
+    batch_packet = {'request_id': 'p689', 'available': True,
+                    'captured_at': '2026-11-18T06:00:00Z',
+                    'data': frame_payload(batch_ratios(
+                        batches, [], '2026-11-01', '2026-11-18',
+                        lambda batch: batch['user']), 'rework')}
+    hours_packet = {'request_id': 'p689', 'available': True,
+                    'captured_at': '2026-11-18T06:00:00Z',
+                    'data': frame_payload(pd.DataFrame([
+                        {'User': 'A', 'Completed Duration': 360 * 3600, 'Completed Tasks': 1000},
+                        {'User': 'B', 'Completed Duration': 329 * 3600, 'Completed Tasks': 900},
+                    ]), 'completion')}
+    request = {'id': 'p689', 'start': '2026-11-01', 'end': '2026-11-18'}
+
+    figure, _, overview, _, _ = paint(
+        request, batch_packet, None, None, 0, 'Completed',
+        hours_packet, None, None, '/', None)
+    assert list(figure.data[0].x) == [
+        'No Rework', '1 Rework', '2 Reworks', '3+ Reworks', 'Unknown',
+        'Completed<br>hours']
+    assert list(figure.data[0].y) == ['A', 'B', '<b>Total</b>']
+    assert figure.layout.meta['verified_completed_seconds'] == pytest.approx(689 * 3600)
+    assert figure.layout.meta['column_totals'][-1] == pytest.approx(689)
+    assert figure.layout.meta['tier_batch_totals'] == [1, 0, 0, 0, 0]
+    assert figure.layout.meta['column_units'] == ['batches'] * 5 + ['hours']
+    assert figure.layout.meta['return_tier_completed_hours_attributed'] is False
+    assert figure.layout.meta['metric'] == 'completed_seconds_and_cohort_batch_counts'
+    assert figure.layout.annotations[-1].text == '689:00'
+    assert figure.data[0].customdata[-1][-1][6].startswith('689:00:00')
+    assert '689:00:00' in str(overview)
+    assert '150:00:00' not in figure.to_json()
+    assert '150:00:00' not in str(overview)
+    assert 'Original batch duration' not in figure.to_json()
+    manager.get_batch_rework_ratio_df.assert_not_called()
+
+    only_b, _, overview_b, _, _ = paint(
+        request, batch_packet, None, ['B'], 0, 'Completed',
+        hours_packet, None, None, '/', None)
+    assert only_b.layout.meta['verified_completed_seconds'] == 329 * 3600
+    assert only_b.layout.meta['column_totals'][-1] == 329
+    assert list(only_b.data[0].y) == ['B', '<b>Total</b>']
+    assert '329:00:00' in str(overview_b)
+
+
+def test_completed_hours_still_render_when_batch_tier_capture_is_missing():
+    namespace, _ = application_namespace()
+    paint = next(value for key, value in namespace['app'].callback_map.items()
+                 if 'rework-ratio-chart.figure' in key and '@' not in key)['callback'].__wrapped__
+    request = {'id': 'no-batch', 'start': '2026-11-01', 'end': '2026-11-18'}
+    hours = {'request_id': 'no-batch', 'available': True,
+             'captured_at': '2026-11-18T06:00:00Z',
+             'data': frame_payload(pd.DataFrame([
+                 {'User': 'A', 'Completed Duration': 689 * 3600,
+                  'Completed Tasks': 3000}
+             ]), 'completion')}
+    figure, _, overview, _, _ = paint(
+        request, None, None, None, 0, 'Completed',
+        hours, None, None, '/', None)
+    assert figure.layout.meta['completed_seconds'] == pytest.approx(689 * 3600)
+    assert figure.layout.meta['column_totals'] == [pytest.approx(689)]
+    assert list(figure.data[0].x) == ['Completed<br>hours']
+    assert figure.layout.title.subtitle.text is None
+    assert '689:00:00' in str(overview)
+
+
+def test_completed_tiers_do_not_use_150_original_hours_when_efficiency_missing():
+    from slicing_dashboard.plots.rework_ratio_chart import build_rework_ratio_chart
+    frame = batch_ratios([
+        dict(batch_id='old', batch_date='2026-11-04', username='A',
+             status='batch_completed', return_count=0,
+             total_duration_seconds=150 * 3600)
+    ], [], '2026-11-01', '2026-11-18', lambda row: row['username'])
+    figure = build_rework_ratio_chart(
+        frame, '2026-11-01', True,
+        completion_state='Completed',
+        completed_evidence={'available': False, 'rows': []})
+    assert figure.layout.meta['verified_completed_seconds'] is None
+    assert figure.layout.meta['column_totals'][-1] is None
+    assert '150:00:00' not in figure.to_json()
+    assert figure.layout.annotations[-1].text == '—'
+    assert figure.layout.meta['tier_batch_totals'] == [1, 0, 0, 0, 0]
+
+
+def test_pending_tier_counts_remain_separate_from_period_completed_hours():
+    from slicing_dashboard.plots.rework_ratio_chart import build_rework_ratio_chart
+    frame = batch_ratios([
+        dict(batch_id='review', batch_date='2026-11-04', username='A',
+             status='batch_pending_admin_review', return_count=0,
+             total_duration_seconds=150 * 3600)
+    ], [], '2026-11-01', '2026-11-18', lambda row: row['username'])
+    figure = build_rework_ratio_chart(
+        frame, '2026-11-01', True, completion_state='Pending approvals',
+        completed_evidence={'available': True, 'rows': [
+            {'User': 'A', 'seconds': 689 * 3600, 'tasks': 3000}]})
+    assert len(figure.data[0].x) == 5
+    assert figure.layout.meta['tier_batch_totals'] == [1, 0, 0, 0, 0]
+    assert figure.layout.meta['verified_completed_seconds'] is None
+    assert '689:00:00' not in figure.to_json()
