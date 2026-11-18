@@ -7,6 +7,7 @@ import pytest
 
 from slicing_dashboard.reporting.daily_output import (
     submitted_video_output, submission_rework_counts,
+    submitted_status_snapshot, select_submitted_status_snapshot,
 )
 from slicing_dashboard.plots.today_submissions_lollipop import build_today_submissions_lollipop
 from slicing_dashboard.pages.today_submissions import saved_today_submission_day
@@ -169,3 +170,54 @@ def test_dashboard_chart_wired_to_dated_evidence_and_user_filters():
     render = callbacks['today-submissions-lollipop-chart.figure']
     assert {'id': 'selected-users-store', 'property': 'data'} in render['inputs']
     assert {'id': 'dashboard-today-submissions-evidence', 'property': 'data'} in render['inputs']
+
+
+
+def test_unverified_efficiency_stock_shows_only_a_labeled_line():
+    capture = {
+        'display_date': '2026-11-17',
+        'captured_at': '2026-11-18T11:00:00Z',
+        'items': [
+            {'user_id': 1, 'username': 'SSHD-Akash',
+             'submitted_count': 12, 'submitted_duration_seconds': 3661},
+            {'user_id': 2, 'username': 'SSHD-Akash2',
+             'submitted_count': 10, 'submitted_duration_seconds': 2470},
+            {'user_id': 3, 'username': 'SSHD-Priya',
+             'submitted_count': 7, 'submitted_duration_seconds': 1800},
+        ],
+    }
+    names = {1: 'Akash', 2: 'Akash', 3: 'Priya'}
+    evidence = submitted_status_snapshot(
+        capture, lambda uid, username: names[uid], '2026-11-17')
+    assert evidence['available'] is True
+    assert evidence['classification_available'] is False
+    assert evidence['scope'] == 'status_snapshot_not_dated_submission_events'
+    assert evidence['values']['submitted_total'] == pytest.approx(7931)
+    assert sum(row['submitted_total'] for row in evidence['users']) == pytest.approx(7931)
+    fig = build_today_submissions_lollipop(evidence)
+    assert [trace.name for trace in fig.data] == ['Submitted video']
+    assert not fig.layout.shapes
+    assert fig.layout.meta['stock_not_daily_events'] is True
+    assert fig.layout.meta['classification_available'] is False
+    assert fig.layout.meta['old_rework_seconds'] is None
+    assert fig.layout.meta['same_day_rework_seconds'] is None
+    assert 'NOT verified as submitted today' in fig.layout.title.subtitle.text
+    assert 'Submitted-status video duration' in fig.layout.title.text
+    filtered = select_submitted_status_snapshot(evidence, ['Priya'])
+    assert filtered['values']['submitted_total'] == 1800
+    assert len(filtered['users']) == 1
+    assert build_today_submissions_lollipop(filtered).data[0].y[0] == pytest.approx(0.5)
+
+
+def test_status_stock_avoids_duplicate_accounts_and_wrong_date():
+    capture = {'display_date': '2026-11-18',
+               'captured_at': '2026-11-18T10:00:00Z',
+               'items': [{'user_id': 1, 'username': 'SSHD-A',
+                          'submitted_count': 1, 'submitted_duration_seconds': 60}]}
+    canonical = lambda uid, username: 'Akash'
+    assert not submitted_status_snapshot(capture, canonical, '2026-11-17')['available']
+    duplicate = {**capture, 'items': capture['items'] * 2}
+    assert not submitted_status_snapshot(duplicate, canonical, '2026-11-18')['available']
+    malformed = {**capture, 'items': [{**capture['items'][0],
+                                      'submitted_duration_seconds': 'broken'}]}
+    assert not submitted_status_snapshot(malformed, canonical, '2026-11-18')['available']
