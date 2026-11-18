@@ -1799,6 +1799,7 @@ class DataManager:
         force_refresh: bool = False,
         overview_data: dict | None = None,
         include_pending: bool = True,
+        include_pool: bool = True,
     ) -> pd.DataFrame:
         """Calculate user-level pending (split by Leader, Auditor, Admin) and assigned (New vs Rework) plus Assignable Pool."""
         if not start_date or not end_date:
@@ -1807,7 +1808,10 @@ class DataManager:
             end_date = end_date or today_str
 
         records = []
-        pool = self.get_assignable_pool(force_refresh)
+        # The assigned-only dashboard panel must not be blocked by a separate
+        # assignable-pool request; it already has its own independent KPI.
+        pool = (self.get_assignable_pool(force_refresh) if include_pool else
+                {'available': False, 'error': None, 'captured_at': None})
         if pool['available']:
             records.append({'User': 'Assignable Pool', 'Stage': 'Assignable (Pool)',
                             'Duration': pool['duration_seconds'], 'Count': pool['task_count'], 'RawID': ''})
