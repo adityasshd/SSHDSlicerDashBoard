@@ -127,7 +127,7 @@ def frame_payload(frame, kind):
     from slicing_dashboard.plots.guardrails import checked_frame
     required = (['User', 'Completed Duration'] if kind == 'completion' else
                 ['User', 'Total Batches'] if kind == 'rework' else ['User', 'Stage', 'Duration'])
-    labels = {'User', 'Stage', 'IDs', 'ID', 'AssignedDate', 'ReturnedDate', 'AssignmentDateBasis',
+    labels = {'User', 'Stage', 'IDs', 'ID', 'AssignedDate', 'ReturnedDate', 'UpdatedDate', 'AssignmentDateBasis',
               'Tier IDs', 'Tier Duration (hrs)', 'Completion State', 'UpdateDateBasis',
               'Verified Tier Duration (hrs)', 'Verified Total Seconds',
               'Verified Hours Available', 'Verified Source Warning'}
