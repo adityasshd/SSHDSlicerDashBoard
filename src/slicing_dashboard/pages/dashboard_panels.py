@@ -67,7 +67,7 @@ def render_panel(kind, request, saved, live, selected, theme, roster, show_count
             from slicing_dashboard.plots.completed_hours_heatmap import (
                 build_completed_hours_heatmap, completion_total)
             if completion_total(completed_evidence, selected) is not None:
-                return build_completed_hours_heatmap(completed_evidence, dark, selected), status
+                return build_completed_hours_heatmap(completed_evidence, dark, selected, compact=True), status
         content = (dbc.Alert(status, color='secondary') if kind == 'summary'
                    else state_figure(status, dark))
         return content, status
