@@ -84,14 +84,14 @@ def render_panel(kind, request, saved, live, selected, theme, roster, show_count
 
 
 def render_rework_hours(request, saved, live, selected, theme, completion_state='All'):
-    """Reuse rework packets so the new KPI never starts another source read."""
-    from slicing_dashboard.plots.kpi_overview import build_rework_hours_metric
-    from slicing_dashboard.reporting.rework_tiers import rework_hours
+    """Backwards-compatible callback name; render batch COUNTS, not hours."""
+    from slicing_dashboard.plots.kpi_overview import build_rework_count_metric
+    from slicing_dashboard.reporting.rework_tiers import rework_counts
 
     dark = (theme or 0) % 2 == 0
     packet, status = choose_packet(request, saved, live)
     if not packet:
-        return build_rework_hours_metric(status=status, is_dark=dark)
+        return build_rework_count_metric(status=status, is_dark=dark)
     try:
         frame = panel_frame(packet)
         if selected is not None and 'User' in frame:
@@ -100,15 +100,13 @@ def render_rework_hours(request, saved, live, selected, theme, completion_state=
             if 'Completion State' not in frame:
                 raise ValueError('Latest batch status unavailable')
             frame = frame[frame['Completion State'] == completion_state]
-        hours = rework_hours(frame)
+        counts = rework_counts(frame)
     except (KeyError, TypeError, ValueError):
-        return build_rework_hours_metric(status='Rework hours unavailable. Refresh to retry.', is_dark=dark)
-    note = ('Original batch duration by recorded return tier; not additional rework labor.' +
-            (' Some tier hours are unavailable.' if any(value is None for value in hours.values()) else ''))
-    if completion_state in ('Completed', 'Pending approvals'):
-        note += f' Latest saved batch status: {completion_state}.'
-    note += ' ' + visible_status(request, saved, live)
-    return build_rework_hours_metric(hours, status=note, is_dark=dark)
+        return build_rework_count_metric(status='Batch counts unavailable.', is_dark=dark)
+    # Stale and read-error states are necessary to avoid presenting old data
+    # as fresh. Avoid verbose calculation notes for valid captures.
+    return build_rework_count_metric(
+        counts, status=visible_status(request, saved, live), is_dark=dark)
 
 
 def visible_status(request, saved, live):
@@ -288,8 +286,7 @@ def _register_panel(app, manager, roster, kind):
                 html.Div(caution, className='kpiu-meta'),
             ])
             return figure, visible_status(request, saved_completion, live_completion), overview
-        # The other modes explicitly show original whole-batch duration, not
-        # period completed hours. They must never silently reuse KPI output.
+        # Return tiers are batch counts; completed hours use a separate source.
         figure, _ = render_panel(kind, request, saved, live, selected, theme, roster,
                                  completion_state=completion_state)
         result = (figure, visible_status(request, saved, live),
