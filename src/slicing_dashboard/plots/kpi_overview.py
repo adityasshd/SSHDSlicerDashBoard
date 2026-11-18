@@ -91,24 +91,27 @@ def _hours(value):
     return '—' if value is None else format_seconds(value * 3600)
 
 
-def build_rework_hours_metric(hours=None, status=None, is_dark=True):
-    """Render duration shares from the existing, scoped rework capture."""
+def build_rework_count_metric(counts=None, status=None, is_dark=True):
+    """Show observed batch counts; old batch durations are not payable rework."""
     colors = [f'var(--kpiu-series-{index})' for index in range(1, 5)] + ['#8b929a']
-    labels = DISPLAY_TIERS
-    returned = [_number((hours or {}).get(tier), None) for tier in TIERS[1:]]
-    returned_total = sum(returned) if all(value is not None for value in returned) else None
+    totals = {tier: None if counts is None else counts.get(tier)
+              for tier in DISPLAY_TIERS}
+    returned = [totals[tier] for tier in TIERS[1:]]
+    returned_total = (sum(returned)
+                      if all(isinstance(value, int) and value >= 0 for value in returned)
+                      else None)
     return [
         html.Div([
-            html.Span('Batch duration by return tier', className='kpiu-label'),
-            html.Strong('Returned batches: ' + _hours(returned_total), className='kpiu-row-value'),
+            html.Span('Rework batches', className='kpiu-label'),
+            html.Strong('Returned: ' + ('—' if returned_total is None
+                                       else f'{returned_total:,}'),
+                        className='kpiu-row-value'),
         ], className='kpiu-row-heading'),
-        _parts([(label, (hours or {}).get(tier), color)
-                for label, tier, color in zip(labels, DISPLAY_TIERS, colors)],
-               'Original batch duration by recorded return count', format_value=_hours),
-        html.Div('Original video duration counted once per batch; not additional hours spent reworking · HH:MM:SS', className='kpiu-meta'),
-        html.Div('Unknown tier: ' + _hours((hours or {}).get('Unknown')) +
-                 ' · excluded from the known returned-batch total.', className='kpiu-meta'),
-        html.Div(status, className='kpiu-meta') if status else None,
+        _parts([(tier, totals[tier], color)
+                for tier, color in zip(DISPLAY_TIERS, colors)],
+               'Batches by observed return tier',
+               format_value=lambda value: '—' if value is None else f'{int(value):,}'),
+        html.Div(status, className='kpiu-warning') if status else None,
     ]
 
 
@@ -162,14 +165,10 @@ def build_kpi_layout(kpis: dict, funnel_map: dict, is_dark: bool) -> list:
     )
 
     panel = html.Section([
-        html.Div([
-            html.H2('Operations overview', className='kpiu-eyebrow'),
-            html.Span('Durations in HH:MM:SS', className='kpiu-topnote'),
-        ], className='kpiu-header'),
+        html.Div([html.H2('Operations overview', className='kpiu-eyebrow')], className='kpiu-header'),
         html.Div([
             html.Div([
                 _metric('Total Approved · period task completion', _duration(approved),
-                        secondary='Completed task video, including confirmed errors',
                         trend=_percent(kpis.get('approved_pct')),
                         sentiment=_comparison(kpis.get('approved_pct')), extra_class='kpiu-primary',
                         value_id='kpi-approved-value', trend_id='kpi-approved-comparison'),
@@ -177,7 +176,7 @@ def build_kpi_layout(kpis: dict, funnel_map: dict, is_dark: bool) -> list:
             html.Div(build_workload_metric(kpis, 'assigned'), id='kpi-assigned', className='kpiu-workload-row kpiu-assigned'),
             html.Div(build_workload_metric(kpis, 'pending', pending_note), id='kpi-review', className='kpiu-workload-row kpiu-review'),
         ], className='kpiu-main'),
-        html.Div(build_rework_hours_metric(kpis.get('rework_tier_hours'), is_dark=is_dark),
+        html.Div(build_rework_count_metric(is_dark=is_dark),
                  id='kpi-rework-breakdown', className='kpiu-rework'),
         html.Div(build_secondary_metrics(kpis), id='kpi-secondary', className='kpiu-metrics'),
     ], id='kpi-overview', className=f'kpiu-overview {"kpiu-dark theme-dark" if is_dark else "kpiu-light theme-light"}')
