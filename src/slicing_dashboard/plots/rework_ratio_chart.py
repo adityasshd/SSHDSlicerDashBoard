@@ -238,12 +238,12 @@ def _build_verified_hours(frame, is_dark, completion_state, selected, completed_
     if selected == []:
         return state_figure("No users selected.", is_dark)
 
-    rows = frame[frame["Completion State"] == completion_state].copy()
-    if selected is not None:
+    rows = (frame[frame["Completion State"] == completion_state].copy()
+            if "Completion State" in frame else frame.iloc[:0].copy())
+    if selected is not None and "User" in rows:
         rows = rows[rows["User"].isin(selected)]
-    rows = rows[rows["Verified Hours Available"] == True]  # noqa: E712
-    if rows.empty:
-        return state_figure("Verified video-duration evidence unavailable for this view.", is_dark)
+    rows = (rows[rows["Verified Hours Available"] == True]  # noqa: E712
+            if "Verified Hours Available" in rows else rows.iloc[:0])
     if rows.duplicated(["User"]).any():
         raise ValueError("Duplicate user duration records")
 
@@ -280,7 +280,9 @@ def _build_verified_hours(frame, is_dark, completion_state, selected, completed_
                 by_user.setdefault(name, [0.] * 5)[4] += (raw - existing) / 3600
 
     if not by_user:
-        return state_figure("No verified video duration for this selection.", is_dark)
+        return state_figure(
+            "Pending review source unavailable." if completion_state == "Pending approvals"
+            else "Completed video duration unavailable for this period.", is_dark)
     users = sorted(by_user, key=lambda name: (-sum(by_user[name]), str(name).casefold()))
     hours, labels, hover = [], [], []
     for user in users:
@@ -297,12 +299,16 @@ def _build_verified_hours(frame, is_dark, completion_state, selected, completed_
     users.append("<b>Total</b>")
     scope = ("Completed paid video · selected date range" if completion_state == "Completed"
              else "Current pending Leader / Auditor / Admin review")
+    warnings = sorted(set(str(w) for w in frame.get("Verified Source Warning", [])
+                          if w and isinstance(w, str)))
     figure = intensity_chart(
         users, tiers, {"Hours": (hours, labels)}, hover,
         "<b>%{customdata[0]}</b><br>%{customdata[1]}<br>%{customdata[2]}"
         "<br>Observed lifetime batch returns · Unknown if unlinked<extra></extra>",
         "Rework intensity · video hours", is_dark,
-        scope + " · return tier by historical/stable batch evidence", show_counts=False,
+        scope + " · observed lifetime return events"
+        + (" · partial sources; unlinked duration is Unknown" if warnings else ""),
+        show_counts=False,
     )
     metadata = dict(figure.layout.meta or {})
     metadata.update({
@@ -316,6 +322,7 @@ def _build_verified_hours(frame, is_dark, completion_state, selected, completed_
                        else "unique_live_queue_batch_candidates",
         "direct_task_to_batch_proof": False,
         "date_scope": "selected_period" if completion_state == "Completed" else "current_queue",
+        "evidence_warnings": warnings,
     })
     figure.update_layout(meta=metadata)
     return figure
