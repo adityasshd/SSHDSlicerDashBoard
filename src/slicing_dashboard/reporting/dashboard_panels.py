@@ -18,7 +18,8 @@ FRAME_COLUMNS = {
     'completion': ('User', 'Completed Duration', 'Completed Tasks'),
     'pending': ('User', 'Stage', 'Duration', 'Count', 'IDs'),
     'assigned': ('User', 'Stage', 'Duration', 'Count', 'IDs', 'ID', 'AssignedDate', 'DaysAssigned',
-                 'AssignmentDateBasis', 'ReturnedDate', 'DaysReturned'),
+                 'AssignmentDateBasis', 'ReturnedDate', 'DaysReturned',
+                 'UpdatedDate', 'DaysUpdated', 'UpdateDateBasis'),
     'rework': ('User', 'Completion State', 'Total Batches', 'No Rework', '1 Rework', '2 Reworks', '3+ Reworks', 'Unknown',
                '3+ Return Count', 'Tier Duration (hrs)', '3 Reworks',
                '4 Reworks', '5+ Reworks', '5+ Return Count', 'Reworked Once', 'Reworked Twice+',
@@ -36,7 +37,7 @@ def panel_key(manager, kind, start, end, *, as_of_date=None):
     scope = [as_of_date or today_iso()] if kind in ('pending', 'assigned') else [start, end]
     identity = [manager.scraper._base_url, manager.settings.admin_username]
     if kind == 'assigned':
-        identity.append('return-date-v1')
+        identity.append('return-date-and-updated-on-fallback-v2')
     if kind == 'rework':
         identity.append('verified-return-tiers-with-unknown-v1')
     if kind == 'pending':
@@ -118,7 +119,7 @@ def frame_payload(frame, kind):
     required = (['User', 'Completed Duration'] if kind == 'completion' else
                 ['User', 'Total Batches'] if kind == 'rework' else ['User', 'Stage', 'Duration'])
     labels = {'User', 'Stage', 'IDs', 'ID', 'AssignedDate', 'ReturnedDate', 'AssignmentDateBasis',
-              'Tier IDs', 'Tier Duration (hrs)', 'Completion State'}
+              'Tier IDs', 'Tier Duration (hrs)', 'Completion State', 'UpdateDateBasis'}
     columns = [column for column in FRAME_COLUMNS[kind] if column in frame]
     frame = checked_frame(frame, required, [column for column in columns if column not in labels])
     frame = frame[columns]
