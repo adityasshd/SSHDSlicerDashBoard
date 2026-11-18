@@ -85,7 +85,7 @@ def test_rework_callback_switches_between_source_hours_and_original_batch_exposu
     fn = callback['callback'].__wrapped__
     cohort = batch_ratios([
         dict(batch_id='old', batch_date='2026-11-04', username='A', user='A',
-             status='batch_completed', total_duration_seconds=540000)
+             status='batch_completed', return_count=0, total_duration_seconds=540000)
     ], [], '2026-11-01', '2026-11-17', lambda row: row['user'])
     rework = {'request_id': 'test', 'available': True,
               'captured_at': '2026-11-17T07:00:00Z',
