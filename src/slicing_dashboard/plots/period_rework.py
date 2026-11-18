@@ -24,10 +24,10 @@ def build_period_rework(frame, completion, state, is_dark, selected=None, pendin
         if not available:
             return state_figure('Period completion unavailable; lifetime batch totals are not substituted.', is_dark)
         users = sorted(completed, key=lambda name: (-completed[name]['seconds'], name))
-        categories = ['No<br>Rework', '1<br>Rework', '2<br>Reworks', '3+<br>Reworks', 'Period<br>completed']
+        categories = ['No<br>Rework', '1<br>Rework', '2<br>Reworks', '3+<br>Reworks', 'Unknown', 'Period<br>completed']
     else:
         users = sorted(set(completed) | {name for name, _ in stacks})
-        categories = ['No<br>Rework', '1<br>Rework', '2<br>Reworks', '3+<br>Reworks', 'Period<br>completed']
+        categories = ['No<br>Rework', '1<br>Rework', '2<br>Reworks', '3+<br>Reworks', 'Unknown', 'Period<br>completed']
     if not users:
         return state_figure('No work for this selection.', is_dark)
     hours, counts, labels, custom = [], [], [], []
@@ -35,14 +35,14 @@ def build_period_rework(frame, completion, state, is_dark, selected=None, pendin
         row = completed.get(user, {})
         duration = float(row.get('seconds', 0)) / 3600 if available else None
         if state == 'Completed':
-            row_hours, row_counts = [None] * 4, [None] * 4
+            row_hours, row_counts = [None] * 5, [None] * 5
         else:
             stack = stacks.get((user, 'Pending approvals'))
-            row_hours = list(stack['hours']) if stack else [0 if pending_available else None] * 4
+            row_hours = list(stack['hours']) if stack else [0 if pending_available else None] * 5
             row_counts = list(stack['counts']) if stack else [0 if pending_available else None] * 4
         row_hours.append(duration)
         row_counts.append(row.get('tasks', 0) if available else None)
-        units = ['batches'] * 4 + ['tasks']
+        units = ['batches'] * 5 + ['tasks']
         hours.append(row_hours)
         counts.append(row_counts)
         labels.append([format_seconds(value * 3600, compact=True) if value is not None else '—' for value in row_hours])
@@ -56,7 +56,7 @@ def build_period_rework(frame, completion, state, is_dark, selected=None, pendin
     counts.append(total_counts)
     labels.append([format_seconds(value * 3600, compact=True) if value is not None else '—' for value in total_hours])
     custom.append([['Total', category, format_seconds(value * 3600) if value is not None else 'Unavailable',
-                    count if count is not None else 'Unavailable', 'tasks' if index == 4 else 'batches']
+                    count if count is not None else 'Unavailable', 'tasks' if index == 5 else 'batches']
                    for index, (category, value, count) in enumerate(zip(categories, total_hours, total_counts))])
     return intensity_chart(users, categories,
         {'Hours': (hours, labels), 'Counts': (counts, [[str(value) for value in row] for row in counts])}, custom,
