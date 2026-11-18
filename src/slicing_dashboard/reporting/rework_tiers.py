@@ -132,5 +132,5 @@ def rework_counts(frame):
                                      'Avg Batch Duration (hrs)',
                                      'Tier Duration (hrs)'], errors='ignore')
     stacks = prepare_rework_stacks(count_only)
-    return {tier: sum(stack['counts'][index] for stack in stacks.values())
+    return {tier: int(sum(stack['counts'][index] for stack in stacks.values()))
             for index, tier in enumerate(DISPLAY_TIERS)}
