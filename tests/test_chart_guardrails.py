@@ -66,7 +66,7 @@ def test_duplicate_daily_records_cannot_overwrite_another_value():
 
 
 def test_batch_distribution_counts_entities_and_unique_returns_only():
-    batches = [dict(batch_id='one', batch_date='2026-10-01', status='batch_completed', total_duration_seconds=720000),
+    batches = [dict(batch_id='one', batch_date='2026-10-01', status='batch_completed', return_count=1, total_duration_seconds=720000),
                dict(batch_id='two', batch_date='2026-10-01', status='batch_member_assigned', total_duration_seconds=100)]
     event = dict(event_id='return-one', batch_id='one', returned_at='2026-10-01T03:00:00Z')
     frame = batch_ratios(batches, [event, event], '2026-10-01', '2026-10-07', lambda batch: 'A')
@@ -84,13 +84,13 @@ def test_rework_matrix_preserves_raw_counts_and_unknown_durations(dark):
     figure = build_rework_ratio_chart(frame, '2026-10-01', dark)
     trace = figure.data[0]
     assert trace.type == 'heatmap'
-    assert _heatmap_matrix(figure)[0] == [None] * 4
+    assert _heatmap_matrix(figure)[0] == [None] * 4 + [0]
     for cell, count, weight in zip(_heatmap_matrix(figure, 'customdata')[0], [1, 1, 1, 3], [1, 1, 2, 12]):
         assert list(cell[:4]) == pytest.approx([count, 6, count * 100 / 6, weight])
         assert list(cell[4:6]) == [None, None]
         assert cell[6] == 'Unavailable' and cell[7] == 'Unavailable'
     assert 'Duration:' in trace.hovertemplate
-    assert figure.data[0].x[-1] == '3+ Reworks'
+    assert figure.data[0].x[-1] == 'Unknown'
     assert figure.layout.hovermode == 'closest'
     assert not figure.layout.updatemenus
     with_counts = build_rework_ratio_chart(frame, '2026-10-01', dark, show_counts=True)
@@ -99,7 +99,7 @@ def test_rework_matrix_preserves_raw_counts_and_unknown_durations(dark):
 
 
 def test_grouped_reworks_use_exact_unique_return_counts_above_three():
-    batches = [dict(batch_id=batch, batch_date='2026-10-01', status='batch_completed', total_duration_seconds=0)
+    batches = [dict(batch_id=batch, batch_date='2026-10-01', status='batch_completed', return_count={'clean': 0, 'five': 5, 'seven': 8}[batch], total_duration_seconds=0)
                for batch in ['clean', 'five', 'seven']]
     events = [dict(event_id=f'{batch}-{index}', batch_id=batch, returned_at='2026-10-02T03:00:00Z')
               for batch, count in [('five', 5), ('seven', 7)] for index in range(count)]
@@ -110,13 +110,14 @@ def test_grouped_reworks_use_exact_unique_return_counts_above_three():
     assert frame.iloc[0]['3+ Reworks'] == 2
     assert frame.iloc[0]['3+ Return Count'] == 12
     figure = build_rework_ratio_chart(frame, '2026-10-01', True)
-    assert _heatmap_matrix(figure)[0] == [0, 0, 0, 0]
-    assert list(_heatmap_matrix(figure, 'customdata')[0][-1][:6]) == pytest.approx([2, 3, 200 / 3, 12, 0, 0])
+    assert _heatmap_matrix(figure)[0] == [0, 0, 0, 0, 0]
+    assert list(_heatmap_matrix(figure, 'customdata')[0][-2][:6]) == pytest.approx([2, 3, 200 / 3, 12, 0, 0])
 
 
 def test_rework_tooltip_ids_are_scoped_to_the_hovered_tier():
     batches = [dict(batch_id=batch, username=account, batch_date='2026-10-01',
-                    status='batch_completed', total_duration_seconds=3600)
+                    status='batch_completed', total_duration_seconds=3600,
+                    return_count={'clean': 0, 'one': 1, 'another': 1, 'two': 2}[batch])
                for batch, account in [('clean', 'A-clean'), ('one', 'A-return'),
                                       ('another', 'A-return'), ('two', 'B-return')]]
     events = [dict(event_id=f'{batch}-{index}', batch_id=batch, returned_at='2026-10-02T03:00:00Z')
@@ -125,7 +126,7 @@ def test_rework_tooltip_ids_are_scoped_to_the_hovered_tier():
     figure = build_rework_ratio_chart(frame, '2026-10-01', True)
     cells = _heatmap_matrix(figure, 'customdata')[0]
     assert [cell[7] for cell in cells[:3]] == ['A-clean', 'A-return', 'B-return']
-    assert [cell[6] for cell in cells] == ['01:00:00', '02:00:00', '01:00:00', '00:00:00']
+    assert [cell[6] for cell in cells] == ['01:00:00', '02:00:00', '01:00:00', '00:00:00', '00:00:00']
     assert 'IDs: %{customdata[7]}' in figure.data[0].hovertemplate
 
 
@@ -138,17 +139,17 @@ def test_weighted_rework_keeps_clean_users_and_legacy_tiers_with_filtering():
                            'Reworked Once': 0, 'Reworked Twice+': 0}])
     figure = build_rework_ratio_chart(frame, '', True)
     assert list(figure.data[0].y[:-1]) == ['Clean', 'Returned']
-    assert _heatmap_matrix(figure)[0] == [None, 0, 0, 0]
+    assert _heatmap_matrix(figure)[0] == [None, 0, 0, 0, 0]
     filtered = build_rework_ratio_chart(frame, '', True, ['Returned'], True)
     assert list(filtered.data[0].y[:-1]) == ['Returned']
-    assert _heatmap_matrix(filtered)[0] == [None, 0, None, 0]
+    assert _heatmap_matrix(filtered)[0] == [None, 0, None, 0, 0]
 
 
 def test_three_plus_durations_and_accounts_survive_saved_panel_roundtrip():
     from slicing_dashboard.reporting.dashboard_panels import frame_payload, panel_frame
     batches = [dict(batch_id=str(index), username=f'account-{index}', batch_date='2026-10-01',
                     status='batch_completed' if index % 2 else 'batch_pending_admin_review',
-                    total_duration_seconds=hours * 3600)
+                    total_duration_seconds=hours * 3600, return_count=[0, 1, 2, 3, 4, 7][index])
                for index, hours in enumerate([1, 2, 3, 4, 5, 6])]
     events = [dict(event_id=f'{index}-{attempt}', batch_id=str(index), returned_at='2026-10-02T03:00:00Z')
               for index, count in enumerate([0, 1, 2, 3, 4, 7]) for attempt in range(count)]
@@ -156,10 +157,10 @@ def test_three_plus_durations_and_accounts_survive_saved_panel_roundtrip():
     restored = panel_frame({'data': frame_payload(frame, 'rework')})
     figure = build_rework_ratio_chart(restored, '', True)
     trace = figure.data[0]
-    assert list(figure.data[0].x) == ['No Rework', '1 Rework', '2 Reworks', '3+ Reworks']
-    assert _heatmap_matrix(figure)[0] == [1, 2, 3, 15]
-    assert [cell[0] for cell in _heatmap_matrix(figure, 'customdata')[0]] == [1, 1, 1, 3]
-    cell = _heatmap_matrix(figure, 'customdata')[0][-1]
+    assert list(figure.data[0].x) == ['No Rework', '1 Rework', '2 Reworks', '3+ Reworks', 'Unknown']
+    assert _heatmap_matrix(figure)[0] == [1, 2, 3, 15, 0]
+    assert [cell[0] for cell in _heatmap_matrix(figure, 'customdata')[0]] == [1, 1, 1, 3, 0]
+    cell = _heatmap_matrix(figure, 'customdata')[0][-2]
     assert cell[3] == 14 and cell[6] == '15:00:00'
     assert cell[7] == 'account-3, account-4, account-5'
     assert cell[10] == 'Completed: 10:00:00 · 2 batches<br>Pending approvals: 05:00:00 · 1 batch'
@@ -175,9 +176,9 @@ def test_legacy_three_plus_merges_scoped_durations_without_using_person_total():
     figure = build_rework_ratio_chart(frame, '', False)
     cells = _heatmap_matrix(figure, 'customdata')[0]
     assert cells[0][6] == '02:00:00'
-    assert cells[-1][6] == '18:00:00'
-    assert cells[-1][3] == 15
-    assert cells[-1][7] == 'eight, four, three'
+    assert cells[-2][6] == '18:00:00'
+    assert cells[-2][3] == 15
+    assert cells[-2][7] == 'eight, four, three'
 
 
 def test_ratio_does_not_generate_batches_from_efficiency_or_current_rework():
