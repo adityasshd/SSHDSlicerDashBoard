@@ -132,3 +132,20 @@ The KPI distribution is labeled **Batch hours by rework tier**, with durations i
 An independent read-only audit for 1–16 November compared the saved batch ledger with 325 live batch records: all durations matched. The 273 eligible submitted batches total 200:14:16. Their tier totals are No Rework **122:46:51** (171 batches), 1 Rework **17:58:37** (22), 2 Reworks **36:28:55** (52), and 3+ Reworks **22:59:53** (28). Returned batches therefore total **77:27:25** across 102 batches. These are base video durations counted once per batch. The previous sums matched the batch records; the label and decimal-hour display obscured their scope. Local evidence is in `data/reports/rework-hours-audit/audit.json`.
 
 Validation: 585 tests and 26 subtests passed, plus four chart JavaScript tests. `node scripts/dashboard_browser_audit.mjs intensity` checks actual pointer hovers, tooltip colors/bounds, all three checkboxes, unchanged chart values and source-read counts, light/dark rendering at 390/1366px, lollipop selection, and populated unequal 12-user/8-user matrices. The preview starts with an unrestricted user selection so roster stress cases contain their actual data. Browser checks report no runtime/network errors or overflow. Reports and screenshots are saved under `data/reports/chart-qa/`.
+
+
+## Evidence-only rework and assignment update — 18 November 2026
+
+The prior heatmap and Overview **original batch hours** rendering is now
+superseded. Return tier cells and the Overview distribution display **batch
+counts only**, including the fifth **Unknown** count. Those values must not
+be interpreted as work hours, payable rework hours, or newly submitted hours.
+Counts still reconcile across the tier total row. Informational subtitles,
+explanatory captions, and duplicate duration footnotes were removed.
+
+The Assigned-by-account bar preserves true assigned/returned dates when known
+and uses the live task's updated_on or equivalent timestamp for age coloring
+only when needed. Hover displays the date as **Last task update (date fallback)**.
+No batch sync time or other unrelated account timestamp is used. Segments
+without usable date evidence remain grey. Pending review and Completed Hours
+remain on their existing duration contracts.
