@@ -75,7 +75,7 @@ def test_rework_matrix_counts_batches_without_substituting_video_hours(state, ex
     assert sum(fig.layout.meta["column_totals"]) == expected_batches
     assert fig.layout.meta['value_unit'] == 'Batches'
     assert fig.layout.meta['raw_hour_customdata_index'] is None
-    assert fig.layout.title.subtitle is None
+    assert fig.layout.title.subtitle.text is None
     assert "Duration:" not in fig.data[0].hovertemplate
     for column in range(5):
         raw = [row[column][-1] for row in fig.data[0].customdata[:-1]]
