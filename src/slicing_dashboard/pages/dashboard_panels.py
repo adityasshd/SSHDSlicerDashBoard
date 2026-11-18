@@ -1,5 +1,6 @@
 """Saved first paint and independent updates for the dashboard's five panels."""
 from uuid import uuid4
+import logging
 
 import dash
 from dash import Input, Output, State, dcc, html
@@ -15,6 +16,8 @@ from slicing_dashboard.plots import (
 from slicing_dashboard.plots.guardrails import state_figure
 from slicing_dashboard.runtime import viewer_mode
 from slicing_dashboard.reporting.settlement_snapshots import manager_snapshot, period_for_range
+
+log = logging.getLogger(__name__)
 
 GRAPH_IDS = {'completion': 'individual-chart', 'rework': 'rework-ratio-chart',
              'assigned': 'assigned-chart', 'pending': 'pending-chart'}
@@ -382,6 +385,42 @@ def _register_panel(app, manager, roster, kind):
             return *result, donut
         return result
 
+    def render_safely(request, saved, live, selected, theme,
+                      completion_state='Completed', saved_completion=None,
+                      live_completion=None):
+        """Keep a failed rework repaint from taking down the Dash callback.
+
+        The precise traceback is logged on the server; browser users see
+        the error category and never a fabricated zero-duration breakdown.
+        """
+        try:
+            return render(request, saved, live, selected, theme, completion_state,
+                          saved_completion, live_completion)
+        except Exception as error:
+            if kind != 'rework':
+                raise
+            log.exception('Rework heatmap callback render failed')
+            from slicing_dashboard.plots.kpi_overview import build_rework_duration_metric
+            from slicing_dashboard.plots.rework_ratio_chart import build_rework_ratio_chart
+            import pandas as pd
+            evidence = None
+            try:
+                evidence = period_completion(request, saved_completion, live_completion)
+            except Exception:
+                log.exception('Independent completion fallback failed')
+            blank = pd.DataFrame(columns=[
+                'User', 'Completion State', 'Verified Tier Duration (hrs)'])
+            dark = (theme or 0) % 2 == 0
+            message = 'Rework rendering failed: ' + type(error).__name__
+            figure = build_rework_ratio_chart(
+                blank, request.get('start', '') if request else '', dark,
+                selected_users=selected,
+                completion_state=completion_state if completion_state in
+                    ('Completed', 'Pending approvals') else 'Completed',
+                completed_evidence=evidence)
+            return (figure, message,
+                    build_rework_duration_metric(status=message, is_dark=dark))
+
     @app.callback(Output(f'dashboard-live-{kind}', 'data'),
                   Input(f'dashboard-ready-{kind}', 'data'), State(request_store, 'data'))
     def capture(ready, request):
@@ -416,8 +455,8 @@ def _register_panel(app, manager, roster, kind):
         start_capture = (dash.no_update if viewer_mode() or request.get('frozen') or matching_packet(request, ready)
                          else {'request_id': request['id']})
         painted = {'request_id': request['id'], 'id': uuid4().hex}
-        return *render(request, saved, live, selected, theme, completion_state,
-                       saved_completion, live_completion), start_capture, painted
+        return *render_safely(request, saved, live, selected, theme, completion_state,
+                              saved_completion, live_completion), start_capture, painted
 
     @app.callback(*[Output(output.component_id, output.component_property, allow_duplicate=True)
                     for output in outputs],
@@ -431,5 +470,6 @@ def _register_panel(app, manager, roster, kind):
                    completion_state='All', saved_completion=None, live_completion=None):
         if not request or request.get('frozen') or not matching_packet(request, live) or pathname not in (None, '/', '/dashboard'):
             raise dash.exceptions.PreventUpdate
-        return render(request, saved, live, selected, theme, completion_state or 'Completed',
-                      saved_completion, live_completion)
+        return render_safely(request, saved, live, selected, theme,
+                             completion_state or 'Completed',
+                             saved_completion, live_completion)
