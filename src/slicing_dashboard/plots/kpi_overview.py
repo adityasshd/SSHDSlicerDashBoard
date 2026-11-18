@@ -54,7 +54,7 @@ def _metric(label, value, secondary=None, trend=None, sentiment='neutral', extra
     return html.Div(children, className=f'kpiu-metric {extra_class}'.strip())
 
 
-def _parts(items, description, format_value=_duration):
+def _parts(items, description, format_value=_duration, share_unit='duration'):
     """Segment widths reflect provided durations; no synthetic data is used."""
     known = all(_number(value, None) is not None and _number(value) >= 0 for _, value, _ in items)
     values = [max(0.0, _number(value)) for _, value, _ in items]
@@ -70,10 +70,11 @@ def _parts(items, description, format_value=_duration):
                     role='progressbar',
                     **{'aria-label': label, 'aria-valuemin': 0, 'aria-valuemax': 100,
                        'aria-valuenow': round(100 * weight / denominator, 2),
-                       'aria-valuetext': f'{format_value(value)} · {100 * weight / denominator:.1f}% of duration'},
+                       'aria-valuetext': f'{format_value(value)} · {100 * weight / denominator:.1f}% of {share_unit}'},
                 ))
     else:
-        track.append(html.Div('No duration in stages' if known else 'Breakdown unavailable',
+        track.append(html.Div(('No batches' if share_unit == 'batches' else 'No duration in stages')
+                              if known else 'Breakdown unavailable',
                               className='kpiu-empty'))
     legend = [html.Div([
         html.Span(className='kpiu-dot', style={'backgroundColor': color}),
@@ -110,7 +111,8 @@ def build_rework_count_metric(counts=None, status=None, is_dark=True):
         _parts([(tier, totals[tier], color)
                 for tier, color in zip(DISPLAY_TIERS, colors)],
                'Batches by observed return tier',
-               format_value=lambda value: '—' if value is None else f'{int(value):,}'),
+               format_value=lambda value: '—' if value is None else f'{int(value):,}',
+               share_unit='batches'),
         html.Div(status, className='kpiu-warning') if status else None,
     ]
 
