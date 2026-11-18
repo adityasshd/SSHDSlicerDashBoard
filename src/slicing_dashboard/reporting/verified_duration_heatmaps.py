@@ -123,8 +123,21 @@ def _archive_states(store, start, end):
         field = lambda key: {"$arrayElemAt": ["$m_" + key + ".captures", 0]}
         projections = {key: field(key) for key in patterns}
         following = (date.fromisoformat(end) + timedelta(days=1)).isoformat()
+        # Most snapshots predate the requested period. Match month prefixes
+        # before running eight regex extractions on large archived payloads.
+        # This filter narrows scanning but the exact day range below remains
+        # authoritative (including ranges spanning multiple months).
+        first = date.fromisoformat(start)
+        last = date.fromisoformat(end)
+        months = set()
+        cursor = first
+        while cursor <= last:
+            months.add(cursor.strftime("%Y-%m"))
+            cursor += timedelta(days=1)
+        month_prefix = r'"observed_at":"(?:' + '|'.join(sorted(months)) + r')-'
         pipeline = [
-            {"$match": {"kind": "batch-observation"}},
+            {"$match": {"kind": "batch-observation",
+                        "payload": {"$regex": month_prefix}}},
             {"$project": matches},
             {"$project": projections},
             {"$match": {"observed": {"$gte": start, "$lt": following},
