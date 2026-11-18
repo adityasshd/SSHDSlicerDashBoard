@@ -1,4 +1,8 @@
-"""Today's dashboard uses verified task counts, not fabricated video hours."""
+"""Submitted-video line and rework-lollipop regression coverage.
+
+The plot displays video duration from a dated Daily submission report, not
+the count-only interim chart, whole-batch duration or time spent working.
+"""
 import pytest
 
 from slicing_dashboard.reporting.daily_output import (
@@ -27,92 +31,128 @@ DAY = {
 }
 
 
-def test_submitted_and_rework_counts_are_distinct_with_subset_relationship():
-    output = submission_rework_counts(DAY, expected_date='2026-11-17')
+def test_video_submission_projection_preserves_per_user_hours_and_rework_subset():
+    output = submitted_video_output(DAY, expected_date='2026-11-17')
     assert output['available'] is True
-    assert output['counts'] == {
-        'submitted_total': 6, 'rework_total': 2,
-        'new': 4, 'old_rework': 1, 'same_day_rework': 1}
-    assert output['unit'] == 'task_submissions'
-    assert output['counts']['submitted_total'] == (
-        output['counts']['new'] + output['counts']['rework_total'])
-    assert output['counts']['rework_total'] == (
-        output['counts']['old_rework'] + output['counts']['same_day_rework'])
+    assert output['unit'] == 'submitted_video_seconds'
+    assert output['values'] == {
+        'submitted_total': 13200., 'new': 7800.,
+        'old_rework': 3600., 'same_day_rework': 1800.,
+    }
+    assert output['counts']['submitted_total'] == 6
+    assert output['users'] == [
+        {'User': 'A', 'submitted_total': 12600,
+         'new': 7200, 'old_rework': 3600, 'same_day_rework': 1800,
+         'counts': {'new': 3, 'old_rework': 1, 'same_day_rework': 1}},
+        {'User': 'B', 'submitted_total': 600,
+         'new': 600, 'old_rework': 0, 'same_day_rework': 0,
+         'counts': {'new': 1, 'old_rework': 0, 'same_day_rework': 0}},
+    ]
+    assert output['values']['submitted_total'] == sum(
+        output['values'][key] for key in ('new', 'old_rework', 'same_day_rework'))
+    # Legacy Total Duration excludes old rework. Never use it for this chart.
+    assert sum(row['Total Duration'] for row in DAY['rows']) == 9600
+    assert output['values']['submitted_total'] == 13200
 
 
 @pytest.mark.parametrize('dark', (True, False))
-def test_lollipop_shows_only_two_counts_and_does_not_display_hours(dark):
-    result = submission_rework_counts(DAY, expected_date='2026-11-17')
-    figure = build_today_submissions_lollipop(result, is_dark=dark)
+def test_line_is_submitted_video_hours_and_lollipops_are_rework_hours(dark):
+    output = submitted_video_output(DAY, expected_date='2026-11-17')
+    figure = build_today_submissions_lollipop(output, is_dark=dark)
     assert [trace.name for trace in figure.data] == [
-        'Submitted today', 'Rework submissions']
-    assert len(figure.data) == len(figure.layout.shapes) == 2
-    assert [trace.x[0] for trace in figure.data] == [6, 2]
-    assert figure.layout.xaxis.title.text == 'Tasks submitted'
-    assert figure.layout.meta['metric'] == 'dated_task_submission_count'
-    assert figure.layout.meta['submitted_count'] == 6
-    assert figure.layout.meta['rework_count'] == 2
+        'Submitted video', 'Old rework', 'Same-day rework',
+    ]
+    assert figure.data[0].mode == 'lines+markers+text'
+    assert list(figure.data[0].y) == pytest.approx([3.5, 1/6])
+    assert list(figure.data[1].y) == pytest.approx([1., 0.])
+    assert list(figure.data[2].y) == pytest.approx([0.5, 0.])
+    # Vertical stems are on each rework marker only when nonzero.
+    stems = list(figure.layout.shapes)
+    assert len(stems) == 2
+    assert all(stem.type == 'line' and stem.y0 == 0 and stem.y1 > 0
+               and stem.x0 == stem.x1 for stem in stems)
+    assert figure.layout.meta['unit'] == 'video_hours'
+    assert figure.layout.meta['metric'] == 'dated_submitted_video_duration'
+    assert figure.layout.meta['submitted_seconds'] == pytest.approx(13200)
+    assert figure.layout.meta['old_rework_seconds'] == pytest.approx(3600)
+    assert figure.layout.meta['same_day_rework_seconds'] == pytest.approx(1800)
     assert figure.layout.meta['rework_is_subset'] is True
-    assert figure.layout.meta['video_hours_inferred'] is False
-    assert 'must not be added' in figure.layout.title.subtitle.text
+    assert figure.layout.meta['screen_time_included'] is False
+    assert 'HH:MM' in figure.layout.yaxis.title.text
+    assert 'included' in figure.layout.title.subtitle.text
     assert 'reconciliation pending' in figure.layout.title.subtitle.text
     figure.to_json()
 
 
-def test_user_filters_and_valid_zero_counts():
-    a = submission_rework_counts(DAY, ['A'], expected_date='2026-11-17')
-    assert a['counts']['submitted_total'] == 5
-    assert a['counts']['rework_total'] == 2
-    b = submission_rework_counts(DAY, ['B'], expected_date='2026-11-17')
-    assert b['counts']['submitted_total'] == 1
-    assert b['counts']['rework_total'] == 0
-    no_one = submission_rework_counts(DAY, [], expected_date='2026-11-17')
-    assert no_one['available'] is False
+def test_user_selection_recalculates_line_and_lollipops():
+    a = submitted_video_output(DAY, ['A'], expected_date='2026-11-17')
+    assert a['values']['submitted_total'] == 12600
+    fig = build_today_submissions_lollipop(a)
+    assert len(fig.data) == 3
+    assert list(fig.data[0].y) == pytest.approx([3.5])
+    assert fig.layout.meta['submitted_seconds'] == 12600
+    b = submitted_video_output(DAY, ['B'], expected_date='2026-11-17')
+    assert b['values']['submitted_total'] == 600
+    fig_b = build_today_submissions_lollipop(b)
+    assert list(fig_b.data[0].y) == pytest.approx([1/6])
+    assert not fig_b.layout.shapes
+
+    no_one = submitted_video_output(DAY, [], expected_date='2026-11-17')
+    assert not no_one['available']
     assert 'No users selected' in no_one['reason']
-    empty_day = {**DAY, 'rows': []}
-    zeros = submission_rework_counts(empty_day, expected_date='2026-11-17')
-    assert zeros['available'] is True
-    assert zeros['counts']['submitted_total'] == 0
-    assert zeros['counts']['rework_total'] == 0
-    assert len(build_today_submissions_lollipop(zeros).data) == 2
+    assert not build_today_submissions_lollipop(no_one).data
 
 
-def test_count_only_rows_do_not_require_unavailable_video_durations():
+def test_valid_empty_capture_does_not_fabricate_any_hours():
+    result = submitted_video_output({**DAY, 'rows': []}, expected_date='2026-11-17')
+    assert result['available'] is True
+    assert result['values']['submitted_total'] == 0
+    assert not build_today_submissions_lollipop(result).data
+
+
+def test_missing_and_invalid_dated_duration_unavailable_not_zero():
+    invalid = {**DAY, 'rows': [{**DAY['rows'][0], 'Old Rework': None}]}
+    broken = {**DAY, 'rows': [
+        {**DAY['rows'][0], 'Same-day Rework': -20},
+        DAY['rows'][1]]}
+    for day in (
+        None, {}, {**DAY, 'date': '2026-11-16'},
+        {**DAY, 'metadata': {'available': False}},
+        {**DAY, 'rows': [{'User': 'A', 'New Tasks': 3}]},
+        invalid, broken,
+        {**DAY, 'rows': [DAY['rows'][0], DAY['rows'][0]]},
+    ):
+        out = submitted_video_output(day, expected_date='2026-11-17')
+        assert out['available'] is False
+        plot = build_today_submissions_lollipop(out)
+        assert not plot.data
+        assert 'substituted.' in plot.layout.annotations[0].text
+
+
+def test_count_only_source_is_not_falsely_presented_as_video_hours():
     count_rows = [
         {key: value for key, value in row.items()
          if key in ('User', 'New Tasks', 'Old Rework Tasks',
                     'Same-day Rework Tasks')}
         for row in DAY['rows']]
-    result = submission_rework_counts({**DAY, 'rows': count_rows})
-    assert result['available'] is True
-    assert result['counts']['submitted_total'] == 6
+    counts = submission_rework_counts({**DAY, 'rows': count_rows})
+    assert counts['available'] is True
+    assert counts['counts']['submitted_total'] == 6
+    duration = submitted_video_output({**DAY, 'rows': count_rows})
+    assert duration['available'] is False
+    figure = build_today_submissions_lollipop(counts)
+    assert not figure.data
 
 
-def test_missing_and_invalid_dated_counts_are_unavailable_not_zero():
-    invalid_rows = [
-        {**DAY['rows'][0], 'Old Rework Tasks': None},
-        {**DAY['rows'][1], 'New Tasks': 0.5},
-    ]
-    for day in (None, {}, {**DAY, 'date': '2026-11-16'},
-                {**DAY, 'metadata': {'available': False}},
-                {**DAY, 'rows': [{'User': 'A', 'New Tasks': 3}]},
-                {**DAY, 'rows': invalid_rows},
-                {**DAY, 'rows': [DAY['rows'][0], DAY['rows'][0]]}):
-        result = submission_rework_counts(day, expected_date='2026-11-17')
-        assert result['available'] is False
-        figure = build_today_submissions_lollipop(result)
-        assert not figure.data
-        assert 'substituted.' in figure.layout.annotations[0].text
+def test_chart_rejects_unreconciled_per_user_duration_not_fake_zero():
+    output = submitted_video_output(DAY)
+    output['users'][0]['old_rework'] = 999999.
+    figure = build_today_submissions_lollipop(output)
+    assert not figure.data
+    assert 'unavailable' in figure.layout.annotations[0].text.lower()
 
 
-def test_old_duration_projection_is_not_used_for_the_count_only_plot():
-    original = submitted_video_output(DAY, expected_date='2026-11-17')
-    assert original['values']['submitted_total'] == 13200
-    assert original['unit'] == 'submitted_video_seconds'
-    assert original['labor_seconds'] is None
-
-
-def test_saved_today_report_is_reused_without_new_source_calls():
+def test_saved_today_report_reused_without_new_source_calls():
     from unittest.mock import Mock
     manager = Mock()
     trend = {'today': DAY}
