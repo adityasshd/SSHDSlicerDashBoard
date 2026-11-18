@@ -360,3 +360,26 @@ def test_db_outage_keeps_independent_pending_duration_and_explains_completed(mon
     restored = panel_frame({"data": packet})
     assert any("configured database unavailable" in warning
                for warning in restored.attrs["source_warnings"])
+
+
+
+def test_empty_offline_archive_warning_survives_panel_serialization():
+    """Empty history + no live queue = unavailable, never a false zero total."""
+    from slicing_dashboard.plots.rework_ratio_chart import build_rework_ratio_chart
+
+    frame = pd.DataFrame(columns=[
+        "Verified Tier Duration (hrs)", "Verified Total Seconds",
+        "Verified Hours Available", "Verified Source Warning",
+    ])
+    frame.attrs["source_warnings"] = [
+        "Completed archive: configured database unavailable",
+        "Pending task queue: ValueError",
+    ]
+    packet = frame_payload(frame, "rework")
+    assert packet["source_warnings"] == frame.attrs["source_warnings"]
+    restored = panel_frame({"data": packet})
+    assert restored.attrs["source_warnings"] == frame.attrs["source_warnings"]
+    figure = build_rework_ratio_chart(
+        restored, "2026-11-01", True, completion_state="Completed")
+    assert not figure.data
+    assert "historical database" in figure.layout.annotations[0].text.lower()
