@@ -39,7 +39,7 @@ def panel_key(manager, kind, start, end, *, as_of_date=None):
     if kind == 'assigned':
         identity.append('return-date-and-updated-on-fallback-v2')
     if kind == 'rework':
-        identity.append('verified-return-tiers-with-unknown-v1')
+        identity.append('verified-return-tier-batch-counts-v2')
     if kind == 'pending':
         identity.append('recovered-task-timing-v1')
     mapping = [manager.user_mapping, getattr(manager, 'user_mapping_full', {}),
