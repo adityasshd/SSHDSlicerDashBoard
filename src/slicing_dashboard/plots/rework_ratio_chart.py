@@ -69,14 +69,13 @@ def build_rework_ratio_chart(
     if is_filtering and effective_users is not None:
         frame = frame[frame["User"].isin(effective_users)]
     frame = frame[frame["Total Batches"] > 0]
-    if frame.empty:
-        selected = selected_users if selected_users is not None else (
-            effective_users if is_filtering else None)
-        if (completion_state == 'Completed' and
-                completion_total(completed_evidence, selected) is not None):
-            return build_completed_hours_heatmap(
-                completed_evidence, is_dark, selected, compact=True)
+    if frame.empty and not (
+            completion_state == 'Completed' and completed_evidence is not None and
+            completion_total(completed_evidence, selected_users) is not None):
         return state_figure("No batch data available.", is_dark)
+    # A successful batch capture may contain zero batches for selected users,
+    # while the task-efficiency report still contains their completed work.
+    # Keep the empty tier counts (zero) and retain all verified hours.
 
     has_status = "Completion State" in frame.columns
     if has_status and not frame["Completion State"].isin(
@@ -86,11 +85,9 @@ def build_rework_ratio_chart(
         if not has_status:
             return state_figure("Batch status unavailable.", is_dark)
         frame = frame[frame["Completion State"] == completion_state].copy()
-        if frame.empty:
-            if (completion_state == 'Completed' and
-                    completion_total(completed_evidence, selected_users) is not None):
-                return build_completed_hours_heatmap(
-                    completed_evidence, is_dark, selected_users, compact=True)
+        if frame.empty and not (
+                completion_state == 'Completed' and completed_evidence is not None and
+                completion_total(completed_evidence, selected_users) is not None):
             return state_figure(f"No {completion_state.lower()} batches available.", is_dark)
 
     grouping = ["User", "Completion State"] if has_status else ["User"]
