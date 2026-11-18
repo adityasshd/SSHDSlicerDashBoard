@@ -76,25 +76,27 @@ def test_batch_distribution_counts_entities_and_unique_returns_only():
 
 
 @pytest.mark.parametrize('dark', [True, False])
-def test_rework_matrix_preserves_raw_counts_and_unknown_durations(dark):
+def test_rework_matrix_preserves_counts_and_never_shows_original_hours(dark):
     frame = pd.DataFrame([{'User': 'A', 'Total Batches': 6, 'No Rework': 1,
                            '1 Rework': 1, '2 Reworks': 1, '3 Reworks': 1,
-                           '4 Reworks': 1, '5+ Reworks': 1, 'Total Duration (hrs)': 12}])
+                           '4 Reworks': 1, '5+ Reworks': 1,
+                           'Total Duration (hrs)': 10000}])
     original = frame.copy(deep=True)
     figure = build_rework_ratio_chart(frame, '2026-10-01', dark)
     trace = figure.data[0]
     assert trace.type == 'heatmap'
-    assert _heatmap_matrix(figure)[0] == [None] * 4 + [0]
-    for cell, count, weight in zip(_heatmap_matrix(figure, 'customdata')[0], [1, 1, 1, 3], [1, 1, 2, 12]):
-        assert list(cell[:4]) == pytest.approx([count, 6, count * 100 / 6, weight])
-        assert list(cell[4:6]) == [None, None]
-        assert cell[6] == 'Unavailable' and cell[7] == 'Unavailable'
-    assert 'Duration:' in trace.hovertemplate
+    assert _heatmap_matrix(figure)[0] == [1, 1, 1, 3, 0]
+    for cell, count in zip(_heatmap_matrix(figure, 'customdata')[0],
+                           [1, 1, 1, 3, 0]):
+        assert cell[:3] == pytest.approx([count, 6, count * 100 / 6])
+    assert 'Duration' not in trace.hovertemplate
+    assert '10000' not in figure.to_json()
     assert figure.data[0].x[-1] == 'Unknown'
     assert figure.layout.hovermode == 'closest'
-    assert not figure.layout.updatemenus
+    assert figure.layout.title.subtitle is None
     with_counts = build_rework_ratio_chart(frame, '2026-10-01', dark, show_counts=True)
-    assert [item.text for item in with_counts.layout.annotations][:4] == ['— / 1', '— / 1', '— / 1', '— / 3']
+    assert [item.text for item in with_counts.layout.annotations][:5] == [
+        '1', '1', '1', '3', '0']
     pd.testing.assert_frame_equal(frame, original)
 
 
@@ -110,8 +112,8 @@ def test_grouped_reworks_use_exact_unique_return_counts_above_three():
     assert frame.iloc[0]['3+ Reworks'] == 2
     assert frame.iloc[0]['3+ Return Count'] == 12
     figure = build_rework_ratio_chart(frame, '2026-10-01', True)
-    assert _heatmap_matrix(figure)[0] == [0, 0, 0, 0, 0]
-    assert list(_heatmap_matrix(figure, 'customdata')[0][-2][:6]) == pytest.approx([2, 3, 200 / 3, 12, 0, 0])
+    assert _heatmap_matrix(figure)[0] == [1, 0, 0, 2, 0]
+    assert list(_heatmap_matrix(figure, 'customdata')[0][-2][:3]) == pytest.approx([2, 3, 200 / 3])
 
 
 def test_rework_tooltip_ids_are_scoped_to_the_hovered_tier():
@@ -125,9 +127,9 @@ def test_rework_tooltip_ids_are_scoped_to_the_hovered_tier():
     frame = batch_ratios(batches, events, '2026-10-01', '2026-10-07', lambda batch: 'Person')
     figure = build_rework_ratio_chart(frame, '2026-10-01', True)
     cells = _heatmap_matrix(figure, 'customdata')[0]
-    assert [cell[7] for cell in cells[:3]] == ['A-clean', 'A-return', 'B-return']
-    assert [cell[6] for cell in cells] == ['01:00:00', '02:00:00', '01:00:00', '00:00:00', '00:00:00']
-    assert 'IDs: %{customdata[7]}' in figure.data[0].hovertemplate
+    assert [cell[3] for cell in cells[:3]] == ['A-clean', 'A-return', 'B-return']
+    assert [cell[0] for cell in cells] == [1, 2, 1, 0, 0]
+    assert 'IDs: %{customdata[3]}' in figure.data[0].hovertemplate
 
 
 def test_weighted_rework_keeps_clean_users_and_legacy_tiers_with_filtering():
@@ -139,10 +141,10 @@ def test_weighted_rework_keeps_clean_users_and_legacy_tiers_with_filtering():
                            'Reworked Once': 0, 'Reworked Twice+': 0}])
     figure = build_rework_ratio_chart(frame, '', True)
     assert list(figure.data[0].y[:-1]) == ['Clean', 'Returned']
-    assert _heatmap_matrix(figure)[0] == [None, 0, 0, 0, 0]
+    assert _heatmap_matrix(figure)[0] == [4, 0, 0, 0, 0]
     filtered = build_rework_ratio_chart(frame, '', True, ['Returned'], True)
     assert list(filtered.data[0].y[:-1]) == ['Returned']
-    assert _heatmap_matrix(filtered)[0] == [None, 0, None, 0, 0]
+    assert _heatmap_matrix(filtered)[0] == [1, 0, 1, 0, 0]
 
 
 def test_three_plus_durations_and_accounts_survive_saved_panel_roundtrip():
@@ -158,13 +160,14 @@ def test_three_plus_durations_and_accounts_survive_saved_panel_roundtrip():
     figure = build_rework_ratio_chart(restored, '', True)
     trace = figure.data[0]
     assert list(figure.data[0].x) == ['No Rework', '1 Rework', '2 Reworks', '3+ Reworks', 'Unknown']
-    assert _heatmap_matrix(figure)[0] == [1, 2, 3, 15, 0]
+    assert _heatmap_matrix(figure)[0] == [1, 1, 1, 3, 0]
     assert [cell[0] for cell in _heatmap_matrix(figure, 'customdata')[0]] == [1, 1, 1, 3, 0]
     cell = _heatmap_matrix(figure, 'customdata')[0][-2]
-    assert cell[3] == 14 and cell[6] == '15:00:00'
-    assert cell[7] == 'account-3, account-4, account-5'
-    assert cell[10] == 'Completed: 10:00:00 · 2 batches<br>Pending approvals: 05:00:00 · 1 batch'
-    assert sum(_heatmap_matrix(figure)[0]) == 21
+    assert cell[0] == 3 and cell[3] == 'account-3, account-4, account-5'
+    assert 'Completed: 2 batches' in cell[6]
+    assert 'Pending approvals: 1 batches' in cell[6]
+    assert sum(_heatmap_matrix(figure)[0]) == 6
+    assert figure.layout.meta['value_unit'] == 'Batches'
 
 
 def test_legacy_three_plus_merges_scoped_durations_without_using_person_total():
@@ -175,10 +178,9 @@ def test_legacy_three_plus_merges_scoped_durations_without_using_person_total():
         'Tier IDs': {'No Rework': 'clean', '3 Reworks': 'three', '4 Reworks': 'four', '5+ Reworks': 'eight'}}])
     figure = build_rework_ratio_chart(frame, '', False)
     cells = _heatmap_matrix(figure, 'customdata')[0]
-    assert cells[0][6] == '02:00:00'
-    assert cells[-2][6] == '18:00:00'
-    assert cells[-2][3] == 15
-    assert cells[-2][7] == 'eight, four, three'
+    assert [cell[0] for cell in cells] == [1, 0, 0, 3, 0]
+    assert cells[-2][3] == 'eight, four, three'
+    assert '20' not in figure.to_json() or 'Total Duration' not in figure.to_json()
 
 
 def test_ratio_does_not_generate_batches_from_efficiency_or_current_rework():
