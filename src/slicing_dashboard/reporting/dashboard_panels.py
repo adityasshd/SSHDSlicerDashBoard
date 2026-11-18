@@ -174,13 +174,13 @@ def capture_panel(manager, kind, start, end, force=False):
                 data = frame_payload(manager.get_user_breakdown_df(start, end, force), kind)
             elif kind == 'rework':
                 from slicing_dashboard.reporting.verified_duration_heatmaps import with_verified_duration
-                ratios = manager.get_batch_rework_ratio_df(start, end, force_refresh=force)
-                # Batch-date inventory failures must not hide independently
-                # captured source-dated completion or the live review queue.
-                # Without an auditable return ledger all time goes to Unknown.
-                if ratios.attrs.get('chart_error'):
-                    ratios = pd.DataFrame()
-                data = frame_payload(with_verified_duration(manager, ratios, start, end), kind)
+                # This panel displays VIDEO HOURS, never batch counts. The old
+                # batch-ratio refresh requires separate upstream requests and
+                # can time out even when source-dated efficiency and pending
+                # queues are healthy. Keep these independent; unknown return
+                # tiers are recorded as Unknown, not false zero hours.
+                data = frame_payload(with_verified_duration(
+                    manager, pd.DataFrame(), start, end), kind)
             elif kind == 'pending':
                 data = frame_payload(manager.get_pending_review_df(force_refresh=force), kind)
             elif kind == 'assigned':
