@@ -5,7 +5,6 @@ No unverified whole-batch duration is silently assigned to a return tier.
 import pandas as pd
 import pytest
 
-from slicing_dashboard.processing.batch_ratios import batch_ratios
 from slicing_dashboard.plots.rework_ratio_chart import build_rework_ratio_chart
 from slicing_dashboard.reporting.dashboard_panels import frame_payload, panel_frame
 from slicing_dashboard.reporting.verified_duration_heatmaps import (
@@ -156,13 +155,14 @@ def test_multi_batch_matching_requires_unique_count_and_duration():
 
 def test_panel_storage_preserves_optional_verified_hours_and_unavailable_cells():
     frame = _fixture_frame()
-    frame.loc[len(frame)] = {
-        "User": "Priya", "Completion State": "Completed", "Total Batches": 1,
-        "Verified Tier Duration (hrs)": None,
-        "Verified Total Seconds": None, "Verified Hours Available": None,
-        "Verified Source Warning": "Completed archive: ValueError",
-    }
+    row = {column: 0 for column in frame.columns if column in
+           ("Total Batches", "No Rework", "1 Rework", "2 Reworks", "3+ Reworks", "Unknown")}
+    row.update({"User": "Priya", "Completion State": "Completed",
+                "Total Batches": 1, "Verified Tier Duration (hrs)": None,
+                "Verified Total Seconds": None, "Verified Hours Available": None,
+                "Verified Source Warning": "Completed archive: ValueError"})
+    frame.loc[len(frame)] = row
     data = frame_payload(frame, "rework")
     restored = panel_frame({"data": data})
     assert restored.loc[0, "Verified Total Seconds"] == 6300
-    assert restored.loc[1, "Verified Hours Available"] is None
+    assert pd.isna(restored.loc[1, "Verified Hours Available"])
