@@ -80,7 +80,7 @@ def test_line_is_submitted_video_hours_and_lollipops_are_rework_hours(dark):
     assert figure.layout.meta['rework_is_subset'] is True
     assert figure.layout.meta['screen_time_included'] is False
     assert 'HH:MM' in figure.layout.yaxis.title.text
-    assert 'included' in figure.layout.title.subtitle.text
+    assert 'includes' in figure.layout.title.subtitle.text
     assert 'reconciliation pending' in figure.layout.title.subtitle.text
     figure.to_json()
 
