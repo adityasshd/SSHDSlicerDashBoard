@@ -297,6 +297,6 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool, show_counts=F
     )
 
     if errors:
-        fig.add_annotation(text="Partial assignment inventory: " + missing_stages,
+        fig.add_annotation(text="Incomplete assignment inventory: " + missing_stages,
                            x=.5, y=1.1, xref='paper', yref='paper', showarrow=False)
     return add_bar_total_labels(fig, 'h', count_index=2 if show_counts else None)
