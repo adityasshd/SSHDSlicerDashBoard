@@ -29,6 +29,8 @@ def people():
         return ['Riya']
     if state['mode'] == 'many':
         return ['Very long username ' + str(i) + ' extended account name' for i in range(35)]
+    if state['mode'] == 'tiers' and state.get('team_size'):
+        return [f'Person {index + 1:02d}' for index in range(state['team_size'])]
     return names
 
 
@@ -53,7 +55,8 @@ def api(*args, **kwargs):
     duration = seconds() if stage == 'leader' else state.get(stage + '_seconds', 0)
     rows = [dict(id=f'{stage}-{i}', slicer_id=i, slicer=name, status=status,
                  duration_seconds=duration) for i, name in enumerate(people())
-            if stage == 'leader' or duration]
+            if (stage == 'leader' or duration) and
+               (state['mode'] != 'tiers' or i < state.get('pending_limit', 999))]
     result = MagicMock()
     result.json.return_value = {'data': rows, 'meta': {'has_more': False, 'total': len(rows)}}
     return result
@@ -80,7 +83,7 @@ def dashboard(*args, **kwargs):
     kpis = {key: 1 for key in ('total_approved_duration', 'approved_pct', 'prev_approved_duration',
         'total_pending_duration', 'leader_review_duration', 'auditor_review_duration', 'admin_review_duration',
         'rework_duration', 'rework_pct', 'prev_rework_duration', 'total_error_duration', 'error_pct',
-        'prev_error_duration', 'completed_tasks', 'total_tasks', 'completed_pct', 'prev_completed_tasks')}
+        'prev_error_duration')}
     if state['mode'] in ('zero', 'large'):
         kpis = {key: (0 if state['mode'] == 'zero' else 1e18) for key in kpis}
     kpis.update(assignable_duration=None if state['mode'] == 'failure' else 0, assignable_count=0,
@@ -128,7 +131,8 @@ def rework_panel(*args, **kwargs):
     if state['mode'] == 'tiers':
         from slicing_dashboard.processing.batch_ratios import batch_ratios
         batches = [dict(batch_id=f'{user}-{index}', username=f'account-{index}',
-                        batch_date='2026-10-01', status='batch_completed',
+                        batch_date='2026-10-01',
+                        status='batch_completed' if index % 2 else 'batch_pending_admin_review',
                         total_duration_seconds=hours * 3600)
                    for user in people() for index, hours in enumerate([1, 2, 3, 4, 5, 6])]
         events = [dict(event_id=f'{user}-{index}-{attempt}', batch_id=f'{user}-{index}',
@@ -158,6 +162,8 @@ manager.get_available_periods.return_value.append({
 for component in components(app.layout):
     if getattr(component, 'id', None) == 'settlement-dropdown':
         component.options.append({'label': 'September 2026', 'value': '2026-09-01|2026-09-30'})
+    if getattr(component, 'id', None) == 'selected-users-store':
+        component.data = None  # Include synthetic rosters beyond the two startup users.
 
 
 def report(*args, **kwargs):
@@ -198,7 +204,7 @@ def trend_report(report_date=None, force_refresh=False, start_date=None):
     result['approvals'] = approvals()
     if state.get('trend_completion'):
         result['efficiency_history'] = completion_history(state.get('trend_saved_seconds', 3600))
-    if state.get('range_sensitive') and start_date and report_date:
+    if start_date and report_date:
         start, end = date.fromisoformat(start_date), date.fromisoformat(report_date)
         if start > end:
             raise ValueError('Invalid range')

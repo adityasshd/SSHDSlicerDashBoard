@@ -8,7 +8,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from slicing_dashboard.app import app as dash_app
+from slicing_dashboard.app import app as dash_app, run_local
 
 
 # Expose the Flask WSGI callable using common hosting entry point names.
@@ -18,4 +18,4 @@ application = app
 
 
 if __name__ == "__main__":
-    dash_app.run(debug=False)
+    run_local(port=8050)

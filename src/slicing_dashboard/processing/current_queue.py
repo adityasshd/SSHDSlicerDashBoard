@@ -1,7 +1,44 @@
 """Read a complete current task queue without settlement/date filters."""
 from slicing_dashboard.processing.daily_work_source import DailyWorkSource
 from slicing_dashboard.processing.daily_work import instant
-from datetime import date as calendar_date
+from datetime import date as calendar_date, datetime
+
+
+def latest_task_update(task):
+    """Return the most recent timestamp from the live task, NOT collector sync.
+
+    An update is a general record modification, not evidence of when a task
+    was assigned or returned. We only use it to color undated queue segments
+    with an explicitly labelled last-update basis.
+    """
+    fields = ('updated_on', 'updated_at', 'status_updated_at',
+              'modified_at', 'last_modified_at')
+    candidates = []
+    for field in fields:
+        raw = task.get(field)
+        if not raw:
+            continue
+        try:
+            # Date-only values should not shift one day back on UTC+8 -> IST.
+            text = str(raw)
+            if len(text) == 10:
+                date_value = calendar_date.fromisoformat(text)
+                stamp = instant(date_value.isoformat() + 'T12:00:00+08:00')
+            else:
+                stamp = instant(raw)
+        except (ValueError, TypeError, OverflowError):
+            continue
+        if stamp is not None:
+            candidates.append((stamp, field))
+    latest = task.get('_latest_update')
+    if latest:
+        try:
+            stamp = instant(latest)
+            if stamp is not None:
+                candidates.append((stamp, task.get('_latest_update_basis') or 'updated_on'))
+        except (ValueError, TypeError, OverflowError):
+            pass
+    return max(candidates, key=lambda value: value[0]) if candidates else (None, None)
 
 
 def assignment_metadata(task, batches, returns=()):
@@ -59,7 +96,15 @@ def assignment_metadata(task, batches, returns=()):
         matching = []
     returned = max([date(task.get('slice_returned_at') or task.get('returned_at'))]
                    + [date(row.get('returned_at')) for row in matching])
+    update_stamp, update_field = latest_task_update(task)
+    # Future task updates are clock/data errors; never color them as Today.
+    from slicing_dashboard.management.periods import today_iso
+    update_date = (update_stamp.date().isoformat()
+                   if update_stamp and update_stamp.date() <= calendar_date.fromisoformat(today_iso())
+                   else '')
     return {'AssignedDate': known, 'ReturnedDate': returned,
+            'UpdatedDate': update_date,
+            'UpdateDateBasis': update_field if update_date else 'Unknown',
             'BatchID': batch_id or ', '.join(sorted(
                 str(row['batch_id']) for row in candidates if row.get('batch_id') and known)),
             'AssignmentDateBasis': ('Assignment timestamp' if direct_date else

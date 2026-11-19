@@ -48,7 +48,8 @@ def test_latest_api_matches_every_stage_after_alias_mapping_and_remapping(source
     frame = pending_frame(dm)
     assert frame.set_index('Stage').Duration.to_dict() == {'Pending Leader': 5400, 'Pending Auditor': 0, 'Pending Admin': 23}
     figure = build_pending_chart(frame, True)
-    assert {trace.name: sum(trace.y) * 3600 for trace in figure.data} == {'Pending Leader': 5400, 'Pending Admin': 23}
+    assert [cell[-1] for cell in figure.data[0].customdata[0]] == [5400 / 3600, 0, 23 / 3600]
+    assert list(figure.data[0].x) == ['Leader', 'Auditor', 'Admin']
     assert frame.attrs['captured_at'] and not frame.attrs['pending_error']
     dm.user_mapping['alias'] = 'Other person'
     assert set(pending_frame(dm).User) == {'Person', 'Other person'}
@@ -95,7 +96,7 @@ def test_source_next_day_is_included_at_india_evening_boundary():
 def test_slow_old_response_cannot_overwrite_or_return_instead_of_new_capture():
     cache = PendingReviewCapture()
     started, release = Event(), Event()
-    def source(scraper, end):
+    def source(scraper, end, **_kwargs):
         if scraper == 'old':
             started.set()
             assert release.wait(3)
@@ -115,7 +116,7 @@ def test_rollover_does_not_join_a_previous_day_request():
     cache = PendingReviewCapture()
     started, release = Event(), Event()
     end = {'date': '2026-10-07'}
-    def source(scraper, day):
+    def source(scraper, day, **_kwargs):
         if day == '2026-10-07':
             started.set()
             assert release.wait(3)
@@ -159,5 +160,5 @@ def test_zero_duration_with_pending_tasks_is_not_dropped(source):
     dm = manager()
     dm.scraper._client.get.return_value = response({'items': [account(seconds=0)], 'total': 1})
     figure = build_pending_chart(pending_frame(dm), True)
-    assert list(figure.data[0].y) == [0]
-    assert figure.data[0].customdata[0][2] == 1
+    assert list(figure.data[0].z[0]) == [0, 0, 0]
+    assert figure.data[0].customdata[0][0][3] == 1

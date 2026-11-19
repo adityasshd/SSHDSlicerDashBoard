@@ -44,7 +44,7 @@ def _get_rework_color(days: float) -> str:
 
 
 @safe_chart
-def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
+def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool, show_counts=False) -> go.Figure:
     """Build horizontal stacked bar chart of assigned videos segmented by ID.
 
     Each slicer's bar is stacked by their assigned accounts/IDs.
@@ -54,12 +54,16 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
     """
     t = theme_ctx(is_dark)
     assigned_df = checked_frame(assigned_df, ['User', 'Stage', 'Duration'], ['Duration', 'Count'])
-    errors = assigned_df.attrs.get('assignment_errors', [])
+    errors = assigned_df.attrs.get('assignment_errors', []) or []
+    # Upstream exception *types* and stage labels are safe to display. No
+    # requests, credentials or server response bodies are surfaced.
+    missing_stages = '; '.join(str(error)[:64] for error in errors)
 
     if assigned_df.empty:
         fig = go.Figure()
         fig.add_annotation(
-            text="Current assignment data unavailable; refresh to retry" if errors else "No assigned work active",
+            text=("Current assignment queues unavailable: " + missing_stages
+                  if errors else "No assigned work active"),
             showarrow=False,
             font={"size": 14, "color": t["font_color"]},
         )
@@ -77,7 +81,7 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
     if "ID" not in df.columns:
         df["ID"] = df.get("IDs", df["User"])
     if "Count" not in df.columns:
-        df["Count"] = 0
+        df["Count"] = None
     today = date.fromisoformat(today_iso())
     def _calc_days(value):
         try:
@@ -85,7 +89,8 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
         except (ValueError, TypeError):
             return 0
 
-    for column, age_column in [('AssignedDate', 'DaysAssigned'), ('ReturnedDate', 'DaysReturned')]:
+    for column, age_column in [('AssignedDate', 'DaysAssigned'), ('ReturnedDate', 'DaysReturned'),
+                               ('UpdatedDate', 'DaysUpdated')]:
         if column not in df:
             df[column] = ''
         df[column] = df[column].fillna('')
@@ -93,8 +98,15 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
             df[age_column] = df[column].apply(_calc_days)
         else:
             df[age_column] = df[age_column].fillna(df[column].apply(_calc_days))
-    df = checked_frame(df, ['User', 'Stage', 'Duration'], ['DaysAssigned', 'DaysReturned'])
-    df['ColorAge'] = df['DaysAssigned'].where(df['Stage'] != 'Rework Assigned', df['DaysReturned'])
+    df = checked_frame(df, ['User', 'Stage', 'Duration'],
+                       ['DaysAssigned', 'DaysReturned', 'DaysUpdated'])
+    # Real assignment/return timestamps take precedence. Fall back to the
+    # *last task update* ONLY when the relevant event date is missing.
+    df['ColorAge'] = df.apply(
+        lambda row: row['DaysReturned'] if row['ReturnedDate'] else
+                    row['DaysUpdated'] if row['Stage'] == 'Rework Assigned' else
+                    row['DaysAssigned'] if row['AssignedDate'] else row['DaysUpdated'],
+        axis=1)
 
     def _date_label(value, days):
         if not value:
@@ -172,16 +184,21 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
             raw_id = str(row["ID"])
             dur_sec = float(row["Duration"])
             dur_hours = dur_sec / 3600.0
-            cnt = int(row["Count"])
+            cnt = int(row["Count"]) if pd.notna(row["Count"]) else None
             days = float(row["DaysAssigned"])
             date_str = str(row["AssignedDate"])
             return_days = float(row['DaysReturned'])
             returned_str = str(row['ReturnedDate'])
-
+            updated_str = str(row['UpdatedDate'])
+            updated_days = float(row['DaysUpdated'])
             if stage == "Rework Assigned":
-                color = _get_rework_color(return_days) if returned_str else '#94a3b8'
+                fallback = not returned_str and bool(updated_str)
+                color = (_get_rework_color(return_days) if returned_str else
+                         _get_rework_color(updated_days) if fallback else '#94a3b8')
             else:
-                color = _get_assigned_color(days) if date_str else '#94a3b8'
+                fallback = not date_str and bool(updated_str)
+                color = (_get_assigned_color(days) if date_str else
+                         _get_assigned_color(updated_days) if fallback else '#94a3b8')
 
             fmt_dur = format_seconds(dur_sec)
             date_label = _date_label(date_str, days)
@@ -189,9 +206,15 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
                 date_label += ' (account batch date)'
             return_label = ('<br>Returned on: ' + _date_label(returned_str, return_days)
                             if stage == 'Rework Assigned' else '')
+            # An updated_on timestamp records a general modification. It is
+            # not presented as the actual assigned/returned event date.
+            update_label = ('<br>Last task update: ' + _date_label(updated_str, updated_days)
+                            + ' (date fallback)' if fallback else '')
             
             # Show ID on bar if block is wide enough
             in_bar_text = f"{raw_id}" if dur_hours >= 0.7 else (f"{fmt_dur}" if dur_hours >= 0.4 else "")
+            if show_counts:
+                in_bar_text = f'{format_seconds(dur_sec, compact=True)} / {cnt if cnt is not None else "—"}'
 
             # Ensure legible text contrast
             text_color = "#0f172a" if (color in ["#86efac", "#4ade80", "#22c55e", "#fda4af", "#fb7185"]) else "#ffffff"
@@ -205,7 +228,8 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
             segment["color"].append(color)
             segment["text"].append(in_bar_text)
             segment["text_color"].append(text_color)
-            segment["customdata"].append([fmt_dur, stage, cnt, raw_id, date_label, dur_hours, return_label])
+            segment["customdata"].append([fmt_dur, stage, cnt, raw_id, date_label, dur_hours,
+                                           return_label, update_label])
 
     for segment in segments:
         fig.add_trace(go.Bar(
@@ -217,9 +241,9 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
             hovertemplate=(
                 "<b>%{y}</b><br>"
                 "%{customdata[1]}<br>"
-                "%{customdata[0]}<br>"
+                "%{customdata[0]}<br>%{customdata[2]} tasks<br>"
                 "ID: %{customdata[3]}<br>"
-                "Assigned on: %{customdata[4]}%{customdata[6]}<extra></extra>"
+                "Assigned on: %{customdata[4]}%{customdata[6]}%{customdata[7]}<extra></extra>"
             ), showlegend=False,
         ))
 
@@ -273,6 +297,6 @@ def build_assigned_chart(assigned_df: pd.DataFrame, is_dark: bool) -> go.Figure:
     )
 
     if errors:
-        fig.add_annotation(text="Current assignment data incomplete; refresh to retry",
+        fig.add_annotation(text="Incomplete assignment inventory: " + missing_stages,
                            x=.5, y=1.1, xref='paper', yref='paper', showarrow=False)
-    return add_bar_total_labels(fig, 'h')
+    return add_bar_total_labels(fig, 'h', count_index=2 if show_counts else None)

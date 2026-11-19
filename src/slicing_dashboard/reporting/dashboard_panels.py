@@ -1,8 +1,10 @@
 """Compact, scoped chart captures. Reading a saved panel never contacts a source."""
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from hashlib import sha256
 import json
+import logging
 from threading import RLock
 
 import pandas as pd
@@ -10,32 +12,39 @@ import pandas as pd
 from slicing_dashboard.management.periods import today_iso
 from slicing_dashboard.processing.daily_work import EXCLUDED
 
+log = logging.getLogger(__name__)
+
 KINDS = ('summary', 'completion', 'rework', 'assigned', 'pending')
 VERSION = 2
 _LOCK = RLock()
 FRAME_COLUMNS = {
-    'completion': ('User', 'Completed Duration'),
+    'completion': ('User', 'Completed Duration', 'Completed Tasks'),
     'pending': ('User', 'Stage', 'Duration', 'Count', 'IDs'),
     'assigned': ('User', 'Stage', 'Duration', 'Count', 'IDs', 'ID', 'AssignedDate', 'DaysAssigned',
-                 'AssignmentDateBasis', 'ReturnedDate', 'DaysReturned'),
-    'rework': ('User', 'Completion State', 'Total Batches', 'No Rework', '1 Rework', '2 Reworks', '3+ Reworks',
+                 'AssignmentDateBasis', 'ReturnedDate', 'DaysReturned',
+                 'UpdatedDate', 'DaysUpdated', 'UpdateDateBasis'),
+    'rework': ('User', 'Completion State', 'Total Batches', 'No Rework', '1 Rework', '2 Reworks', '3+ Reworks', 'Unknown',
                '3+ Return Count', 'Tier Duration (hrs)', '3 Reworks',
                '4 Reworks', '5+ Reworks', '5+ Return Count', 'Reworked Once', 'Reworked Twice+',
-               'Total Duration (hrs)', 'Avg Batch Duration (hrs)', 'Tier IDs'),
+               'Total Duration (hrs)', 'Avg Batch Duration (hrs)', 'Tier IDs',
+               'Verified Tier Duration (hrs)', 'Verified Total Seconds', 'Verified Hours Available',
+               'Verified Source Warning'),
 }
-SUM_FIELDS = ('total_approved_duration', 'prev_approved_duration', 'total_error_duration',
-              'prev_error_duration', 'rework_duration', 'prev_rework_duration', 'total_tasks',
-              'completed_tasks', 'prev_completed_tasks', 'total_pending_duration',
-              'leader_review_duration', 'auditor_review_duration', 'admin_review_duration')
+SUM_FIELDS = ('total_approved_duration', 'prev_approved_duration',
+              'total_pending_duration', 'leader_review_duration', 'auditor_review_duration',
+              'admin_review_duration', 'rework_duration', 'prev_rework_duration',
+              'total_error_duration', 'prev_error_duration')
 
 
-def panel_key(manager, kind, start, end):
+def panel_key(manager, kind, start, end, *, as_of_date=None):
     if kind not in KINDS:
         raise ValueError('Unknown dashboard panel')
-    scope = [today_iso()] if kind in ('pending', 'assigned') else [start, end]
+    scope = [as_of_date or today_iso()] if kind in ('pending', 'assigned') else [start, end]
     identity = [manager.scraper._base_url, manager.settings.admin_username]
     if kind == 'assigned':
-        identity.append('return-date-v1')
+        identity.append('return-date-and-updated-on-fallback-v2')
+    if kind == 'rework':
+        identity.append('verified-video-duration-tier-hours-v1')
     if kind == 'pending':
         identity.append('recovered-task-timing-v1')
     mapping = [manager.user_mapping, getattr(manager, 'user_mapping_full', {}),
@@ -47,6 +56,53 @@ def saved_panel(manager, kind, start, end):
     key = panel_key(manager, kind, start, end)
     with _LOCK:
         return deepcopy(manager._snapshot_payload.get('dashboard_panels', {}).get(key))
+
+
+def latest_saved_panel(manager, kind, start, end, *, max_age_days=7):
+    """Viewer-only fallback for an unavailable *current-day* chart capture.
+
+    Uses the exact same source/mapping identity as normal scoped packets. For
+    summary/completion/rework the reporting period must begin at the same start
+    date; for current inventory the older date-specific snapshot key is used.
+    No snapshot is relabelled as current and custom/historical ranges never
+    receive another period's data.
+    """
+    if end != today_iso() or max_age_days < 1:
+        return None
+    try:
+        start_day, requested_day = date.fromisoformat(start), date.fromisoformat(end)
+    except (TypeError, ValueError):
+        return None
+    if start_day > requested_day:
+        return None
+    india = ZoneInfo("Asia/Kolkata")
+    with _LOCK:
+        panels = manager._snapshot_payload.get('dashboard_panels', {})
+        for age in range(1, max_age_days + 1):
+            candidate = requested_day - timedelta(days=age)
+            if candidate < start_day:
+                break
+            candidate_iso = candidate.isoformat()
+            key = panel_key(manager, kind, start, candidate_iso, as_of_date=candidate_iso)
+            packet = panels.get(key)
+            if not isinstance(packet, dict) or not packet.get('available'):
+                continue
+            # Date from the persisted packet, not the hash, proves when this
+            # particular snapshot was actually collected.
+            try:
+                captured = datetime.fromisoformat(packet['captured_at'].replace('Z', '+00:00'))
+                if captured.tzinfo is None or captured.astimezone(india).date() != candidate:
+                    continue
+            except (KeyError, ValueError, TypeError, AttributeError):
+                continue
+            recovered = deepcopy(packet)
+            recovered['fallback'] = {
+                'as_of_date': candidate_iso, 'requested_end': end,
+                'period_start': start, 'period_end': candidate_iso,
+                'age_days': age,
+            }
+            return recovered
+    return None
 
 
 def attach_panels(manager, payload):
@@ -62,39 +118,62 @@ def attach_panels(manager, payload):
 
 
 def frame_payload(frame, kind):
-    if any(frame.attrs.get(key) for key in ('chart_error', 'pending_error', 'assignment_errors')):
+    # One failed assigned queue must not erase verified hours from the other
+    # queue. Carry partial-coverage metadata to the chart and KPI instead.
+    fail_keys = ('chart_error', 'pending_error') + (
+        () if kind == 'assigned' else ('assignment_errors',))
+    if any(frame.attrs.get(key) for key in fail_keys):
         raise ValueError('Chart source unavailable')
     from slicing_dashboard.plots.guardrails import checked_frame
     required = (['User', 'Completed Duration'] if kind == 'completion' else
                 ['User', 'Total Batches'] if kind == 'rework' else ['User', 'Stage', 'Duration'])
-    labels = {'User', 'Stage', 'IDs', 'ID', 'AssignedDate', 'ReturnedDate', 'AssignmentDateBasis',
-              'Tier IDs', 'Tier Duration (hrs)', 'Completion State'}
+    labels = {'User', 'Stage', 'IDs', 'ID', 'AssignedDate', 'ReturnedDate', 'UpdatedDate', 'AssignmentDateBasis',
+              'Tier IDs', 'Tier Duration (hrs)', 'Completion State', 'UpdateDateBasis',
+              'Verified Tier Duration (hrs)', 'Verified Total Seconds',
+              'Verified Hours Available', 'Verified Source Warning'}
     columns = [column for column in FRAME_COLUMNS[kind] if column in frame]
     frame = checked_frame(frame, required, [column for column in columns if column not in labels])
     frame = frame[columns]
     # Preserve IDs needed by stack tooltips; omit task-level audit evidence.
-    return {'columns': list(frame.columns), 'records': json.loads(frame.to_json(orient='records'))}
+    packet = {'columns': list(frame.columns), 'records': json.loads(frame.to_json(orient='records'))}
+    if kind == 'assigned':
+        warnings = frame.attrs.get('assignment_errors') or []
+        packet['source_warnings'] = list(warnings)
+        packet['queue_complete'] = not bool(warnings)
+    elif kind == 'rework':
+        # Even an empty dataframe can represent an unavailable remote archive.
+        # Preserve its reason separately from numeric cells so empty evidence
+        # is not misrepresented as zero videos.
+        packet['source_warnings'] = list(frame.attrs.get('source_warnings') or [])
+    return packet
 
 
 def panel_frame(packet):
     data = packet['data']
-    return pd.DataFrame(data['records'], columns=data['columns'])
+    result = pd.DataFrame(data['records'], columns=data['columns'])
+    result.attrs['assignment_errors'] = (
+        list(data.get('source_warnings') or [])
+        if 'queue_complete' in data else [])
+    result.attrs['source_warnings'] = list(data.get('source_warnings') or [])
+    result.attrs['queue_complete'] = data.get('queue_complete', True)
+    return result
 
 
 def selected_summary(data, users, roster):
     result = dict(data['all'])
-    if users is None or set(users) == set(roster):
+    if users is None:
         return result
     for field in SUM_FIELDS:
-        result[field] = sum(data['users'].get(user, {}).get(field, 0) for user in users)
+        values = [data['users'].get(user, {}).get(field) for user in users]
+        result[field] = sum(values) if all(value is not None for value in values) else None
     for label, current, previous in (
         ('approved', 'total_approved_duration', 'prev_approved_duration'),
         ('error', 'total_error_duration', 'prev_error_duration'),
         ('rework', 'rework_duration', 'prev_rework_duration'),
-        ('completed', 'completed_tasks', 'prev_completed_tasks'),
     ):
-        result[label + '_pct'] = ((result[current] - result[previous]) / result[previous] * 100
-                                  if result[previous] else 0.0)
+        result[label + '_pct'] = (None if result[current] is None or result[previous] is None else
+                                 (result[current] - result[previous]) / result[previous] * 100
+                                 if result[previous] else 0.0)
     return result
 
 
@@ -105,28 +184,35 @@ def capture_panel(manager, kind, start, end, force=False):
         with manager.refresh_scope(persist_snapshot=False):
             key = panel_key(manager, kind, start, end)
             if kind == 'summary':
-                raw = manager.fetch_dashboard_data(start, end, force)
                 all_kpis = manager.get_summary_kpis(start, end, force_refresh=force)
-                if raw.get('_source_error') or all_kpis.get('_source_error'):
+                if all_kpis.get('_source_error'):
                     raise ValueError('Summary unavailable')
                 users = set(manager.user_mapping.values()) | set(manager._snapshot_payload.get('available_users', []))
                 by_user = {user: manager.get_summary_kpis(start, end, selected_users=[user])
                            for user in sorted(user for user in users if user and user not in EXCLUDED)}
                 if any(row.get('_source_error') for row in by_user.values()):
                     raise ValueError('User summary unavailable')
-                data = {'all': all_kpis, 'users': by_user,
-                        'funnel': {row['key']: row for row in raw.get('breakdowns', {}).get('slice_funnel', [])}}
+                data = {'all': all_kpis, 'users': by_user, 'funnel': {}}
             elif kind == 'completion':
                 data = frame_payload(manager.get_user_breakdown_df(start, end, force), kind)
             elif kind == 'rework':
-                data = frame_payload(manager.get_batch_rework_ratio_df(start, end, force_refresh=force), kind)
+                from slicing_dashboard.reporting.verified_duration_heatmaps import with_verified_duration
+                # This panel displays VIDEO HOURS, never batch counts. The old
+                # batch-ratio refresh requires separate upstream requests and
+                # can time out even when source-dated efficiency and pending
+                # queues are healthy. Keep these independent; unknown return
+                # tiers are recorded as Unknown, not false zero hours.
+                data = frame_payload(with_verified_duration(
+                    manager, pd.DataFrame(), start, end), kind)
             elif kind == 'pending':
                 data = frame_payload(manager.get_pending_review_df(force_refresh=force), kind)
             elif kind == 'assigned':
-                manager.sync_batches_master(start, end, force_refresh=force)
+                # Live slice_assigned/slice_rework queues establish the stock.
+                # Batch sync and assignable-pool discovery are independent and
+                # may fail without invalidating these live video durations.
                 frame = manager.get_detailed_pending_assigned_df(
                     start_date='2020-01-01', end_date=today_iso(),
-                    force_refresh=force, include_pending=False)
+                    force_refresh=force, include_pending=False, include_pool=False)
                 if not frame.empty:
                     frame = frame[frame['Stage'].isin(['New Assigned', 'Rework Assigned'])]
                 data = frame_payload(frame, kind)
@@ -145,4 +231,7 @@ def capture_panel(manager, kind, start, end, force=False):
                     del panels[old]
         return packet
     except Exception as error:
+        # The browser sees only the exception class. The server logs the
+        # traceback and panel kind so a 500 cannot become an unexplained zero.
+        log.exception('Dashboard panel capture failed: %s', kind)
         return {'available': False, 'error': type(error).__name__, 'started_at': started}

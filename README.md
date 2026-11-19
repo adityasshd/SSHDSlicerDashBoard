@@ -51,7 +51,9 @@ cp .env.example .env
 PYTHONPATH=src uv run python src/slicing_dashboard/app.py
 ```
 
-On Windows, the local runner keeps debug tools enabled but disables automatic process/browser reloading to avoid Werkzeug's `WinError 10038` socket failure during reload. Restart the server after Python changes, then refresh the browser. In PowerShell, start it with `uv run python -m slicing_dashboard.app`.
+In PowerShell, start the local development server with `uv run python -m slicing_dashboard.app` (port 8000). Python edits automatically restart the server, and Dash refreshes the browser; CSS edits update styles automatically. This is enabled on Windows too, using Werkzeug's built-in `stat` watcher. The previous Windows workaround disabled both reloaders and required manual restarts; repeated reloads now pass with the installed dependencies. A running server started before this change needs one restart to enable it.
+
+Running `uv run python app.py` uses the same development settings on port 8050. For a local session without automatic reloading, use `uv run python -c "from slicing_dashboard.app import run_local; run_local(reload=False)"`. WSGI hosting continues to import the Flask server without starting the local development runner; deployed code still follows the host's restart/deployment process.
 
 ## cPanel deployment
 

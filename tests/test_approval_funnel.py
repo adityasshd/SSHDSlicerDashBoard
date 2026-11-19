@@ -1,4 +1,4 @@
-"""Same-cohort nesting, late reviews, returns, and combined rework stacks."""
+"""Same-cohort nesting, late reviews, returns, and separate completion stacks."""
 import pandas as pd
 import pytest
 
@@ -12,7 +12,7 @@ from slicing_dashboard.reporting.dashboard_panels import frame_payload, panel_fr
 
 def batch(identifier, status, seconds=3600, member='Person', **extra):
     return dict(batch_id=identifier, batch_date='2026-10-06', status=status,
-                total_duration_seconds=seconds, username=member,
+                total_duration_seconds=seconds, username=member, return_count=extra.pop('return_count', 0),
                 last_updated='2026-10-13T12:00:00+08:00', **extra)
 
 
@@ -88,8 +88,8 @@ def test_returned_batch_without_rejection_stage_does_not_become_awaiting_or_appr
     assert all(days[0][stage.lower() + '_seconds'] is None for stage in STAGES)
 
 
-def test_rework_combines_same_person_and_preserves_saved_state_and_unique_returns():
-    batches = [batch('done', 'batch_completed'), batch('waiting', 'batch_pending_admin_review')]
+def test_rework_splits_same_person_and_preserves_saved_state_and_unique_returns():
+    batches = [batch('done', 'batch_completed'), batch('waiting', 'batch_pending_admin_review', return_count=1)]
     event = dict(event_id='return', batch_id='waiting', returned_at='2026-10-05T12:00:00Z')
     frame = batch_ratios(batches, [event, event], '2026-10-01', '2026-10-13', lambda b: 'Person')
     assert frame['Completion State'].tolist() == ['Completed', 'Pending approvals']
@@ -97,14 +97,32 @@ def test_rework_combines_same_person_and_preserves_saved_state_and_unique_return
     restored = panel_frame({'data': frame_payload(frame, 'rework')})
     for dark in (True, False):
         figure = build_rework_ratio_chart(restored, '2026-10-01', dark)
-        assert list(figure.data[0].x) == ['Person']
-        assert list(figure.data[0].y) == [50]
-        assert list(figure.data[1].y) == [50]
-        assert figure.data[0].customdata[0][1] == 2
-        assert figure.data[0].customdata[0][6] == '01:00:00'
-        assert figure.data[1].customdata[0][6] == '01:00:00'
+        trace = figure.data[0]
+        assert list(trace.y[:-1]) == ['Person']
+        assert [cell[-1] for cell in trace.customdata[0]] == [1, 1, 0, 0, 0]
+        assert trace.customdata[0][0][1] == 2
+        assert 'Completed: 1 batches' in trace.customdata[0][0][6]
+        assert 'Pending approvals: 1 batches' in trace.customdata[0][1][6]
+        assert 'Duration' not in trace.hovertemplate
         figure.to_json()
     # A person with no pending batches still has only one stack.
     figure = build_rework_ratio_chart(frame.iloc[:1], '2026-10-01', True)
-    assert list(figure.data[0].x) == ['Person']
-    assert list(figure.data[0].y) == [100]
+    assert list(figure.data[0].y[:-1]) == ['Person']
+    assert [cell[-1] for cell in figure.data[0].customdata[0]] == [1, 0, 0, 0, 0]
+
+
+def test_missing_person_status_is_a_gap_and_filters_keep_status_evidence():
+    batches = [batch('a-done', 'batch_completed', member='A'),
+               batch('a-wait', 'batch_pending_admin_review', member='A'),
+               batch('b-wait', 'batch_pending_auditor_review', member='B')]
+    frame = batch_ratios(batches, [], '2026-10-01', '2026-10-13', lambda b: b['username'])
+    original = frame.copy(deep=True)
+    figure = build_rework_ratio_chart(frame, '', True)
+    assert list(figure.data[0].y[:-1]) == ['A', 'B']
+    assert [cell[-1] for cell in figure.data[0].customdata[0]] == [2, 0, 0, 0, 0]
+    assert [cell[-1] for cell in figure.data[0].customdata[1]] == [1, 0, 0, 0, 0]
+    filtered = build_rework_ratio_chart(frame, '', True, ['B'], True)
+    assert list(filtered.data[0].y[:-1]) == ['B']
+    assert 'Completed: 0 batches' in filtered.data[0].customdata[0][0][6]
+    assert 'Pending approvals: 1 batches' in filtered.data[0].customdata[0][0][6]
+    pd.testing.assert_frame_equal(frame, original)

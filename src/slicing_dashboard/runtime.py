@@ -28,7 +28,7 @@ def configure_numeric_threads():
 
 
 class ReadExecutor:
-    """Bound parallel reads and run inline when the host cannot start a thread.
+    """Bound parallel reads and run inline when worker threads are unavailable.
 
     Each submitted call owns its result Future. A failed thread start can leave
     the call queued in the underlying executor, so guard execution to prevent
@@ -71,8 +71,13 @@ class ReadExecutor:
             try:
                 self._pool.submit(run)
             except RuntimeError as error:
-                if "can't start new thread" not in str(error):
+                message = str(error)
+                if ("can't start new thread" not in message
+                        and message != 'cannot schedule new futures after interpreter shutdown'):
                     raise
+                # A request already running during server teardown may still
+                # need nested reads. Finish them in its current thread when
+                # Python has disabled pool submissions; don't drop the refresh.
                 self._inline = True
                 run()
         return future
