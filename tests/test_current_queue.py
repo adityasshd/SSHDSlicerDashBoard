@@ -108,7 +108,7 @@ def test_partial_failure_preserves_successful_queue_with_visible_warning():
     with patch('slicing_dashboard.processing.current_queue.fetch_queue', side_effect=[ConnectionError(), [task('c', 90, status='slice_rework')]]):
         frame = dm.get_detailed_pending_assigned_df(overview_data={})
     figure = build_assigned_chart(frame[frame.Stage == 'Rework Assigned'], True)
-    assert 'incomplete' in figure.layout.annotations[0].text
+    assert 'incomplete' in figure.layout.annotations[0].text.lower()
     assert figure.data[-1].customdata[0][4] == 'Unknown'
 
 
