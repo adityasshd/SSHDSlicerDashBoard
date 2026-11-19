@@ -382,4 +382,4 @@ def test_empty_offline_archive_warning_survives_panel_serialization():
     figure = build_rework_ratio_chart(
         restored, "2026-11-01", True, completion_state="Completed")
     assert not figure.data
-    assert "historical database" in figure.layout.annotations[0].text.lower()
+    assert "historical database" in figure.layout.annotations[0].text.lower().replace("<br>", " ")
