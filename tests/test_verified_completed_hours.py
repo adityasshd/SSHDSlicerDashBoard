@@ -196,10 +196,12 @@ def test_completed_hours_still_render_when_batch_tier_capture_is_missing():
     figure, _, overview, _, _ = paint(
         request, None, None, 0, 'Completed',
         hours, None, None, '/', None)
-    assert figure.layout.meta['completed_seconds'] == pytest.approx(69 * 3600)
-    assert figure.layout.meta['column_totals'] == [pytest.approx(69)]
-    assert list(figure.data[0].x) == ['Completed<br>hours']
-    assert figure.layout.title.subtitle.text is None
+    assert figure.layout.meta['verified_total_seconds'] == pytest.approx(69 * 3600)
+    assert figure.layout.meta['unknown_duration_seconds'] == pytest.approx(69 * 3600)
+    assert figure.layout.meta['tier_duration_seconds'] == pytest.approx([0, 0, 0, 0, 69 * 3600])
+    assert list(figure.data[0].x) == ['No Rework', '1 Rework', '2 Reworks',
+                                    '3+ Reworks', 'Unknown']
+    assert 'Completed paid video' in figure.layout.title.subtitle.text
     assert '69:00:00' in str(overview)
 
 
