@@ -69,10 +69,10 @@ def test_removed_count_controls_do_not_affect_packet_rendering(kind):
     assert ready is dash.no_update
     assert not any(' / ' in item.text for item in figure.layout.annotations)
     if kind == 'rework':
-        assert 'Video hours · returned batches' in json.dumps(overview, cls=__import__('plotly').utils.PlotlyJSONEncoder)
-        assert '01:30:00' not in json.dumps(overview, cls=__import__('plotly').utils.PlotlyJSONEncoder)
+        assert 'Video hours · returned batches' in json.dumps(overview, cls=__import__('plotly').utils.PlotlyJSONEncoder, ensure_ascii=False)
+        assert '01:30:00' not in json.dumps(overview, cls=__import__('plotly').utils.PlotlyJSONEncoder, ensure_ascii=False)
     else:
-        assert '01:30:00' in json.dumps(overview, cls=__import__('plotly').utils.PlotlyJSONEncoder)
+        assert '01:30:00' in json.dumps(overview, cls=__import__('plotly').utils.PlotlyJSONEncoder, ensure_ascii=False)
     manager.get_batch_rework_ratio_df.assert_not_called()
     manager.get_pending_review_df.assert_not_called()
     manager.get_detailed_pending_assigned_df.assert_not_called()
@@ -126,8 +126,8 @@ def test_main_dashboard_serves_new_overview_and_rework_metric_through_real_callb
                    'rework-completion-state': 'All', 'dashboard-saved-completion': None, 'dashboard-live-completion': None})
     rework_key = next(key for key in app.callback_map if 'dashboard-ready-rework.data' in key)
     content = update(rework_key)['kpi-rework-breakdown']['children']
-    assert 'Video hours · returned batches' in json.dumps(content)
-    assert '02:30:00' not in json.dumps(content)
+    assert 'Video hours · returned batches' in json.dumps(content, ensure_ascii=False)
+    assert '02:30:00' not in json.dumps(content, ensure_ascii=False)
     manager.fetch_dashboard_data.assert_not_called()
     manager.get_summary_kpis.assert_not_called()
     manager.get_batch_rework_ratio_df.assert_not_called()
