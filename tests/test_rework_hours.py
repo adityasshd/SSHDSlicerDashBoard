@@ -91,7 +91,7 @@ def test_no_users_selected_is_not_fabricated_zero_hours():
     content = payload_text(render_rework_hours(
         REQUEST, None, packet(), [], 0, completion_state="Completed"))
     assert "Video hours" in content
-    assert "—" in content
+    assert r"\u2014" in content or "—" in content
     assert "09:00:00" not in content
 
 
@@ -111,7 +111,7 @@ def test_missing_duration_evidence_is_unavailable_not_whole_batch_guess():
     invalid["data"]["records"][0]["Verified Tier Duration (hrs)"] = None
     content = payload_text(render_rework_hours(
         REQUEST, None, invalid, None, 0, completion_state="Completed"))
-    assert "—" in content
+    assert r"\u2014" in content or "—" in content
     assert "09:00:00" not in content
 
 
@@ -131,7 +131,7 @@ def test_original_batch_durations_remain_in_separate_audit_but_not_paid_chart():
     content = payload_text(render_rework_hours(
         REQUEST, None, legacy, None, 0, completion_state="Completed"))
     assert "150:00:00" not in content
-    assert "—" in content
+    assert r"\u2014" in content or "—" in content
 
 
 def test_independent_completed_evidence_adds_only_missing_hours_to_unknown():
@@ -154,7 +154,7 @@ def test_invalid_completion_source_does_not_invent_rework_hours():
                 "rows": [{"User": "A", "seconds": 100, "tasks": 1}]}
     content = payload_text(render_rework_hours(
         REQUEST, None, packet(), ["A"], 0, "Completed", evidence))
-    assert "—" in content
+    assert r"\u2014" in content or "—" in content
     assert "Completed source and archive disagree" in content
 
 
