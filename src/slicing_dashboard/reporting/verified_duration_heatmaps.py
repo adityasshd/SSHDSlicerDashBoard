@@ -305,8 +305,92 @@ def completed_duration_rows(manager, start, end, store, tiers):
     return by_user
 
 
-def pending_duration_rows(manager, batches, tiers, task_records):
-    """Classify only full, unique queue-group matches; partial batches Unknown."""
+
+def _fresh_batch_evidence(manager):
+    """Use latest *persisted* batch and return ledgers when MongoDB is available.
+
+    The live review queue is independently fetched. Mixing it with startup
+    ledger caches misclassifies recent returns as zero or Unknown. Read the
+    two small indexed ledgers together; fail closed if either query fails.
+    No expensive upstream per-account request or task-video scan is added.
+    """
+    cache = getattr(manager, "_batches_master_cache", {}) or {}
+    batches = list(cache.values()) if isinstance(cache, dict) else list(cache)
+    returns = getattr(manager, "_batch_returns_cache", []) or []
+    returns = list(returns.values()) if isinstance(returns, dict) else list(returns)
+    healthy = not (getattr(manager, "_returns_source_error", None) or
+                   getattr(manager, "_batch_source_error", None))
+    db = getattr(manager, "db", None)
+    mongo = getattr(db, "mongo_db", None)
+    # In unit tests a MagicMock may expose arbitrary attributes including
+    # .mongo_db. Real pymongo Database.name is a literal string.
+    if mongo is None or not isinstance(getattr(mongo, "name", None), str):
+        return batches, returns, healthy
+    fields = {"_id": 0, "batch_id": 1, "assignee_id": 1, "status": 1,
+              "batch_date": 1, "return_count": 1,
+              "production_task_count": 1, "benchmark_count": 1,
+              "total_duration_seconds": 1}
+    event_fields = {"_id": 0, "batch_id": 1, "event_id": 1,
+                    "user_id": 1, "legacy_batch_number": 1,
+                    "returned_at": 1}
+    try:
+        latest_batches = list(mongo["batches_master"].find({}, fields))
+        latest_returns = list(mongo["batch_returns"].find({}, event_fields))
+        if not latest_batches:
+            raise ValueError("Empty persisted batch ledger")
+        return latest_batches, latest_returns, True
+    except Exception:
+        log.exception("Persisted batch/return evidence unavailable")
+        return batches, returns, False
+
+
+def _legacy_return_links(returns):
+    """Return IDs prove (operator, legacy number) -> permanent batch candidates.
+
+    A legacy number is reusable. Do not resolve collisions here; the current
+    ledger must reduce candidates to exactly one same-owner, compatible-stage
+    batch before linking any of its current task video seconds.
+    """
+    links = defaultdict(set)
+    for event in returns:
+        bid = str(event.get("batch_id") or "")
+        uid = event.get("user_id")
+        legacy = event.get("legacy_batch_number")
+        if not bid or uid is None or legacy is None or isinstance(legacy, bool):
+            continue
+        links[(str(uid), str(legacy))].add(bid)
+    return links
+
+
+def _batch_can_contain(batch, uid, stage, count, duration, *, partial):
+    if (str(batch.get("assignee_id")) != uid or
+            batch.get("status") not in BATCH_STAGES[stage]):
+        return False
+    try:
+        task_count = integer(batch.get("production_task_count"))
+        total = seconds(batch.get("total_duration_seconds"))
+        benchmark = integer(batch.get("benchmark_count", 0))
+    except (ValueError, TypeError, OverflowError):
+        return False
+    if benchmark != 0:
+        # Don't attribute the production portion without excluding benchmarks
+        # by task identity from both sides of the comparison.
+        return False
+    if partial:
+        return (0 < count <= task_count and
+                0 < duration <= total + TOLERANCE_SECONDS)
+    return count == task_count and abs(total - duration) <= TOLERANCE_SECONDS
+
+
+def pending_duration_rows(manager, batches, tiers, task_records, returns=None):
+    """Classify live task VIDEO seconds only with unique evidence-backed joins.
+
+    Priority: task's permanent batch ID; a uniquely compatible batch backed
+    by a return event's (user_id, legacy_batch_number, batch_id); or an
+    exact full-batch numeric match. A partially visible queue is admissible
+    only with the first two stronger forms of identity. All unmatched or
+    over-attributed task seconds remain Unknown.
+    """
     cohorts = defaultdict(list)
     all_ids = set()
     for task in task_records:
@@ -325,36 +409,69 @@ def pending_duration_rows(manager, batches, tiers, task_records):
             continue
         stable = task.get("assignment_batch_id") or task.get("batch_id")
         legacy = task.get("slice_batch")
-        key = (user, uid, STAGES[status],
-               "stable:" + str(stable) if stable else "legacy:" + str(legacy))
-        cohorts[key].append(task)
-    by_user = defaultdict(lambda: dict.fromkeys(TIERS, 0.0))
+        group = (user, uid, STAGES[status],
+                 "stable:" + str(stable) if stable else "legacy:" + str(legacy))
+        cohorts[group].append(task)
+
+    by_id = {row["batch_id"]: row for row in batches if row.get("batch_id")}
+    legacy_links = _legacy_return_links(returns or [])
+    assignments = []
     for (user, uid, stage, key), tasks in cohorts.items():
-        value = sum(seconds(task.get("duration_seconds")) for task in tasks)
-        if not value:
+        duration = sum(seconds(task.get("duration_seconds")) for task in tasks)
+        if not duration:
             continue
         count = len(tasks)
-        matches = []
-        for batch in batches:
-            if str(batch.get("assignee_id")) != uid or batch.get("status") not in BATCH_STAGES[stage]:
-                continue
-            bid = batch.get("batch_id")
-            if key.startswith("stable:") and key[7:] != str(bid):
-                continue
-            try:
-                valid = (integer(batch.get("production_task_count", 0)) == count and
-                         abs(seconds(batch.get("total_duration_seconds", 0)) - value) <= TOLERANCE_SECONDS and
-                         integer(batch.get("benchmark_count", 0)) == 0)
-            except (ValueError, TypeError, OverflowError):
-                valid = False
-            if valid:
-                matches.append(bid)
-        # A legacy number is not a stable ID. Require full cohort, same owner,
-        # same stage, unique count+duration, and a verified return ledger.
-        if len(matches) == 1 and matches[0] in tiers:
-            by_user[user][tiers[matches[0]]] += value
+        selected = None
+        if key.startswith("stable:"):
+            bid = key[7:]
+            batch = by_id.get(bid)
+            if (bid in tiers and batch is not None and
+                    _batch_can_contain(batch, uid, stage, count, duration, partial=True)):
+                selected = bid
         else:
-            by_user[user]["Unknown"] += value
+            # The return-history event directly relates this operator's
+            # displayed legacy batch number to one or more permanent IDs.
+            # Reuse can occur; require one viable CURRENT active batch.
+            candidates = [
+                bid for bid in legacy_links.get((uid, key[7:]), set())
+                if bid in tiers and bid in by_id and
+                _batch_can_contain(by_id[bid], uid, stage, count, duration, partial=True)
+            ]
+            if len(candidates) == 1:
+                selected = candidates[0]
+            elif len(candidates) == 0:
+                # Preserve the old conservative whole-cohort matching for
+                # zero-return batches that have no return event to link them.
+                exact = [
+                    bid for bid, batch in by_id.items()
+                    if bid in tiers and
+                    _batch_can_contain(batch, uid, stage, count, duration, partial=False)
+                ]
+                if len(exact) == 1:
+                    selected = exact[0]
+            # More than one current viable candidate remains Unknown.
+        assignments.append((user, count, duration, selected))
+
+    attributed = defaultdict(lambda: [0, 0.0])
+    for _, count, duration, bid in assignments:
+        if bid is not None:
+            attributed[bid][0] += count
+            attributed[bid][1] += duration
+
+    # Cross-stage protection: if multiple queue cohorts unexpectedly link to
+    # the same permanent batch but collectively exceed the batch's production
+    # count or video duration, attribute NONE of those cohorts to that tier.
+    excessive = set()
+    for bid, (count, duration) in attributed.items():
+        batch = by_id[bid]
+        if (count > integer(batch["production_task_count"]) or
+                duration > seconds(batch["total_duration_seconds"]) + TOLERANCE_SECONDS):
+            excessive.add(bid)
+
+    by_user = defaultdict(lambda: dict.fromkeys(TIERS, 0.0))
+    for user, _, duration, bid in assignments:
+        tier = tiers[bid] if bid is not None and bid not in excessive else "Unknown"
+        by_user[user][tier] += duration
     return by_user
 
 
@@ -375,12 +492,7 @@ def with_verified_duration(manager, ratio_frame, start, end):
     from slicing_dashboard.processing.pending_review import capture_for
     from slicing_dashboard.processing.workflow_history import WorkflowStore
     store = WorkflowStore(getattr(manager, "db", None), initialize=False).chart_reader()
-    batches = list(getattr(manager, "_batches_master_cache", {}).values())
-    returns = getattr(manager, "_batch_returns_cache", []) or []
-    if isinstance(returns, dict):
-        returns = list(returns.values())
-    healthy = not (getattr(manager, "_returns_source_error", None) or
-                   getattr(manager, "_batch_source_error", None))
+    batches, returns, healthy = _fresh_batch_evidence(manager)
     tiers = _return_tiers(batches, returns, healthy)
     # Independent source failures must not hide another verified duration
     # source. Completed fallback uses the separate source-date completion
@@ -410,7 +522,7 @@ def with_verified_duration(manager, ratio_frame, start, end):
         capture = capture_for(manager).read(manager.scraper)
         if capture.get("error") or "tasks" not in capture:
             raise ValueError("Live pending task queue unavailable")
-        pending = pending_duration_rows(manager, batches, tiers, capture["tasks"])
+        pending = pending_duration_rows(manager, batches, tiers, capture["tasks"], returns=returns)
     except Exception as error:
         log.exception('Verified pending queue duration reconstruction failed')
         pending = {}
