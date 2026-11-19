@@ -69,7 +69,7 @@ def test_removed_count_controls_do_not_affect_packet_rendering(kind):
     assert ready is dash.no_update
     assert not any(' / ' in item.text for item in figure.layout.annotations)
     if kind == 'rework':
-        assert 'Rework batches' in json.dumps(overview, cls=__import__('plotly').utils.PlotlyJSONEncoder)
+        assert 'Video hours · returned batches' in json.dumps(overview, cls=__import__('plotly').utils.PlotlyJSONEncoder)
         assert '01:30:00' not in json.dumps(overview, cls=__import__('plotly').utils.PlotlyJSONEncoder)
     else:
         assert '01:30:00' in json.dumps(overview, cls=__import__('plotly').utils.PlotlyJSONEncoder)
@@ -126,7 +126,7 @@ def test_main_dashboard_serves_new_overview_and_rework_metric_through_real_callb
                    'rework-completion-state': 'All', 'dashboard-saved-completion': None, 'dashboard-live-completion': None})
     rework_key = next(key for key in app.callback_map if 'dashboard-ready-rework.data' in key)
     content = update(rework_key)['kpi-rework-breakdown']['children']
-    assert 'Rework batches' in json.dumps(content)
+    assert 'Video hours · returned batches' in json.dumps(content)
     assert '02:30:00' not in json.dumps(content)
     manager.fetch_dashboard_data.assert_not_called()
     manager.get_summary_kpis.assert_not_called()
@@ -234,8 +234,9 @@ def test_completion_finishes_while_rework_is_still_reading():
         started.set()
         assert release.wait(2)
         return pd.DataFrame(columns=['User', 'Total Batches'])
-    manager.get_batch_rework_ratio_df.side_effect = slow
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    # Rework now reads verified video duration, not the legacy batch ratios.
+    with patch('slicing_dashboard.reporting.verified_duration_heatmaps.with_verified_duration',
+               side_effect=slow), ThreadPoolExecutor(max_workers=2) as pool:
         rework = pool.submit(capture_panel, manager, 'rework', '2026-10-01', '2026-10-08')
         try:
             assert started.wait(1)
