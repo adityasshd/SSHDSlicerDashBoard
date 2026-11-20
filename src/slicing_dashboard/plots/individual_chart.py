@@ -29,9 +29,13 @@ def build_individual_chart(breakdown_df, start_date: str, end_date: str, is_dark
                 raise ValueError('Invalid pending review stages')
             pending = queue.groupby('User')['Duration'].sum(min_count=1).to_dict()
 
-    users = sorted(set(completed) | set(pending),
-                   key=lambda user: (-(completed.get(user, 0) + pending.get(user, 0)),
-                                     str(user).casefold()))
+    # A user with zero completed AND zero pending duration has contributed no
+    # paid video duration in this view. Pending-only contributors remain visible.
+    users = sorted(
+        (user for user in set(completed) | set(pending)
+         if completed.get(user, 0) + pending.get(user, 0) > 0),
+        key=lambda user: (-(completed.get(user, 0) + pending.get(user, 0)),
+                          str(user).casefold()))
     if not users:
         return state_figure('No completed or pending-review work available for this selection.', is_dark)
 
@@ -53,7 +57,9 @@ def build_individual_chart(breakdown_df, start_date: str, end_date: str, is_dark
             marker={'color': color, 'size': 13, 'symbol': 'circle',
                     'line': {'color': color, 'width': 2}},
             text=[hour_total_label(hours)],
-            textposition='bottom center' if pending_available and queue_seconds > 0 else 'top center',
+            # Opposite-side labels keep values clear of both the stem and
+            # nearby endpoint markers, even for a small pending increment.
+            textposition='middle left' if pending_available and queue_seconds > 0 else 'middle right',
             cliponaxis=False, textfont={'size': 10},
             customdata=[[format_seconds(seconds), format_seconds(queue_seconds),
                          format_seconds(total)]],
@@ -68,7 +74,7 @@ def build_individual_chart(breakdown_df, start_date: str, end_date: str, is_dark
                 mode='markers+text', marker={'color': marker_color, 'size': 13,
                                               'symbol': 'diamond',
                                               'line': {'color': theme['bg_color'], 'width': 1}},
-                text=[hour_total_label(effective_hours)], textposition='top center',
+                text=[hour_total_label(effective_hours)], textposition='middle right',
                 cliponaxis=False, textfont={'size': 10},
                 customdata=[[format_seconds(seconds), format_seconds(queue_seconds),
                              format_seconds(total)]],
@@ -88,7 +94,8 @@ def build_individual_chart(breakdown_df, start_date: str, end_date: str, is_dark
         font={'family': 'Inter, sans-serif', 'size': 12, 'color': theme['font_color']},
         height=420, margin={'l': 55, 'r': 24, 't': 85, 'b': 48},
         xaxis={'title': '', 'showgrid': False,
-               'categoryorder': 'array', 'categoryarray': users},
+               'categoryorder': 'array', 'categoryarray': users,
+               'range': [-0.85, len(users) - 0.15]},
         yaxis={'title': 'Video hours', 'showgrid': True},
         clickmode='event+select', hovermode='closest', showlegend=False,
         meta={'chart_role': 'effective-work-duration',
