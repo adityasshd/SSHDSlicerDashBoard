@@ -118,7 +118,7 @@ def test_zero_settlement_contributors_are_hidden_but_pending_only_people_remain(
     assert chart.layout.meta['completed_seconds'] == pytest.approx(3600)
     assert chart.layout.meta['pending_seconds'] == pytest.approx(7200)
     assert chart.layout.meta['effective_seconds'] == pytest.approx(10800)
-    assert 'Pending-only person effective work' in [t.name for t in chart.data]
+    assert 'Pending-only person effective work' in [t.name.replace('<br>', ' ') for t in chart.data]
     assert all(t.textposition in ('middle left', 'middle right') for t in chart.data)
     assert all(not t.name.startswith(('No work', 'Both zero', 'Queue-only zero'))
                for t in chart.data)
