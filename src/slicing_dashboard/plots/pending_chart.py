@@ -64,7 +64,7 @@ def build_pending_chart(pending_df, is_dark: bool, show_counts=False):
         {'Hours': (hours, labels), 'Tasks': (counts, [[str(value) for value in row] for row in counts])},
         custom, '<b>%{customdata[0]}</b><br>%{customdata[1]}<br>%{customdata[2]}<br>'
                 '%{customdata[3]} tasks<br>IDs: %{customdata[4]}<extra></extra>',
-        'Pending review intensity', is_dark, 'Current queue · user by review stage',
+        'Pending review intensity', is_dark, subtitle='',
         show_counts=show_counts, total_column=True,
     )
     figure.update_layout(meta={**figure.layout.meta, 'captured_at': pending_df.attrs.get('captured_at')})
