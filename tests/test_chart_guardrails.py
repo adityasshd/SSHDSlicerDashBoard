@@ -43,6 +43,10 @@ def test_scales_keep_finite_extreme_values_and_full_names(seconds):
     names = ['Very long full username ' + str(i) * 35 for i in range(50)]
     frame = pd.DataFrame({'User': names, 'Completed Duration': [seconds] * 50})
     figure = build_individual_chart(frame, '2026-10-01', '2026-10-07', True)
+    if seconds == 0:
+        assert not figure.data  # No settlement contribution is not a plotted marker.
+        assert 'No completed or pending-review work' in figure.layout.annotations[0].text
+        return
     assert sum(len(trace.x) for trace in figure.data) == 50
     assert sum(sum(trace.y) for trace in figure.data) == pytest.approx(seconds / 3600 * 50)
     assert all(math.isfinite(value) for value in figure.layout.yaxis.range)
@@ -248,7 +252,7 @@ def test_completed_lollipop_labels_and_stems_preserve_values_and_selection():
     figure = build_individual_chart(pd.DataFrame({'User': ['A'], 'Completed Duration': [9000]}), '', '', True)
     assert figure.data[0].text[0] == '02:30'
     assert figure.data[0].type == 'scatter' and figure.data[0].mode == 'markers+text'
-    assert figure.data[0].textposition == 'top center' and figure.data[0].cliponaxis is False
+    assert figure.data[0].textposition == 'middle right' and figure.data[0].cliponaxis is False
     assert figure.layout.clickmode == 'event+select'
     assert figure.layout.shapes[0].y0 == 0 and figure.layout.shapes[0].y1 == 2.5
     assert figure.layout.shapes[0].line.color == figure.data[0].marker.color
