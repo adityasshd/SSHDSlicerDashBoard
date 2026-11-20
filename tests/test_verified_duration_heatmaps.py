@@ -34,10 +34,12 @@ def test_completed_heatmap_uses_five_duration_columns_and_conserves_source():
             {"User": "Akash", "seconds": 6300, "tasks": 40},
         ]})
     assert len(f.data) == 1
-    assert list(f.data[0].x) == list(TIERS)
+    assert list(f.data[0].x) == [*TIERS, '<b>Total</b>']
     assert f.layout.meta["value_unit"] == "Hours"
     assert all(unit == "hours" for unit in f.layout.meta["column_units"])
     assert f.layout.meta["verified_total_seconds"] == pytest.approx(6300)
+    assert f.layout.meta['grand_total'] == pytest.approx(1.75)
+    assert f.layout.meta['row_totals'] == pytest.approx([1.75])
     assert f.layout.meta["unknown_duration_seconds"] == pytest.approx(900)
     assert sum(f.layout.meta["tier_duration_seconds"]) == pytest.approx(6300)
     assert f.data[0].y[-1] == "<b>Total</b>"
@@ -51,7 +53,7 @@ def test_missing_archive_uses_unknown_column_not_one_completed_line():
         frame, "2026-11-01", True, completion_state="Completed",
         completed_evidence={"available": True, "rows": [
             {"User": "Akash", "seconds": 3600, "tasks": 20}]})
-    assert list(fig.data[0].x) == list(TIERS)
+    assert list(fig.data[0].x) == [*TIERS, '<b>Total</b>']
     assert fig.layout.meta["verified_total_seconds"] == pytest.approx(3600)
     assert fig.layout.meta["unknown_duration_seconds"] == pytest.approx(3600)
     assert fig.layout.meta["tier_duration_seconds"][0] == 0
@@ -77,7 +79,7 @@ def test_pending_uses_same_five_hour_columns_without_date_filter():
     }])
     chart = build_rework_ratio_chart(frame, "2026-11-01", True,
                                      completion_state="Pending approvals")
-    assert list(chart.data[0].x) == list(TIERS)
+    assert list(chart.data[0].x) == [*TIERS, '<b>Total</b>']
     assert chart.layout.meta["date_scope"] == "current_queue"
     assert chart.layout.meta["verified_total_seconds"] == pytest.approx(7200)
 
