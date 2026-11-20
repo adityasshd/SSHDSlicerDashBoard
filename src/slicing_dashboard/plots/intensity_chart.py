@@ -8,7 +8,7 @@ from slicing_dashboard.plots.theme import theme_ctx, tooltip_text_color
 
 
 def intensity_chart(users, categories, metrics, customdata, hovertemplate, title, is_dark,
-                    subtitle=None, show_counts=False, value_key='Hours'):
+                    subtitle=None, show_counts=False, value_key='Hours', total_column=False):
     """Keep intensity in hours; optionally label each cell as HH:MM / count."""
     theme = theme_ctx(is_dark)
     scale = ([[0, '#0d211c'], [.5, '#165a50'], [1, '#c2fd75']] if is_dark else
@@ -18,6 +18,9 @@ def intensity_chart(users, categories, metrics, customdata, hovertemplate, title
     values, labels = metrics[value_key]
     counts = next((matrix[0] for label, matrix in metrics.items() if label != value_key), values)
     has_total = bool(users and users[-1] == '<b>Total</b>')
+    has_total_column = bool(total_column and categories and categories[-1] == '<b>Total</b>')
+    if total_column and not has_total_column:
+        raise ValueError('The total column must be the rightmost heatmap category')
     colored_values = values[:-1] if has_total else values
     # Each column measures its own relative intensity. A large value in one
     # return tier must not flatten the colors in a different tier. Preserve
@@ -33,7 +36,8 @@ def intensity_chart(users, categories, metrics, customdata, hovertemplate, title
     for user, row, texts, count_row in zip(users, values, labels, counts):
         row_colors, row_text_colors = [], []
         for index, (category, value, text, count) in enumerate(zip(categories, row, texts, count_row)):
-            color = (neutral if has_total and user == users[-1] else
+            color = (neutral if (has_total and user == users[-1]) or
+                     (has_total_column and index == len(categories) - 1) else
                      sample_colorscale(scale, [value / color_limits[index]])[0]
                      if value is not None else None)
             row_colors.append(color or ('#10261e' if is_dark else '#ffffff'))
@@ -60,10 +64,14 @@ def intensity_chart(users, categories, metrics, customdata, hovertemplate, title
         [[*cell, value] for cell, value in zip(custom_row, raw_row)]
         for custom_row, raw_row in zip(customdata, values)
     ]
+    if has_total_column:
+        for row in normalized:
+            row[-1] = -1.0
     if has_total:
         # Reserve the negative color-space for an explicit neutral Total row,
         # rather than introducing a second trace with mismatched cell bounds.
         normalized[-1] = [-1.0] * len(categories)
+    if has_total or has_total_column:
         display_scale = [
             [0.0, neutral], [0.4999, neutral],
             [0.5, scale[0][1]], [0.75, scale[1][1]], [1.0, scale[2][1]],
@@ -72,7 +80,7 @@ def intensity_chart(users, categories, metrics, customdata, hovertemplate, title
         display_scale = scale
     figure = go.Figure(go.Heatmap(
         x=categories, y=users, z=normalized, customdata=custom_with_raw_hours,
-        zmin=-1 if has_total else 0, zmax=1, colorscale=display_scale,
+        zmin=-1 if has_total or has_total_column else 0, zmax=1, colorscale=display_scale,
         xgap=4, ygap=4, showscale=False,
         hovertemplate=hovertemplate, hoverongaps=True,
         hoverlabel={'bgcolor': hover_colors, 'bordercolor': hover_colors,
@@ -98,6 +106,9 @@ def intensity_chart(users, categories, metrics, customdata, hovertemplate, title
               'raw_value_customdata_index': -1,
               'value_unit': value_key,
               'column_maxima': column_maxima,
-              'column_totals': values[-1] if has_total else None},
+              'column_totals': values[-1] if has_total else None,
+              'row_totals': [row[-1] for row in values[:-1] if row] if has_total_column else None,
+              'grand_total': values[-1][-1] if has_total_column and has_total else None,
+              'total_column': has_total_column},
     )
     return figure
