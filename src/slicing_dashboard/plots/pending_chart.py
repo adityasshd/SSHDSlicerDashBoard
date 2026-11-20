@@ -43,17 +43,29 @@ def build_pending_chart(pending_df, is_dark: bool, show_counts=False):
             row_counts.append(count)
             row_labels.append(format_seconds(seconds, compact=True))
             row_custom.append([escape('Total' if user == total_label else user), stage, format_seconds(seconds), count, escape(ids)])
+        # A distinct neutral Total column adds each stage once; no extra tasks.
+        row_total = sum(row_hours)
+        count_total = sum(row_counts)
+        identifiers = sorted({item.strip() for stage in STAGES
+                              for item in cells.get((user, stage), (0, 0, 'None'))[2].split(',')
+                              if item.strip() and item.strip() not in ('None', 'Unavailable')})
+        row_hours.append(row_total)
+        row_counts.append(count_total)
+        row_labels.append(format_seconds(row_total * 3600, compact=True))
+        row_custom.append([escape('Total' if user == total_label else user), 'Total',
+                           format_seconds(row_total * 3600), count_total,
+                           escape(', '.join(identifiers) or 'None')])
         hours.append(row_hours)
         counts.append(row_counts)
         labels.append(row_labels)
         custom.append(row_custom)
     figure = intensity_chart(
-        users, ['Leader', 'Auditor', 'Admin'],
+        users, ['Leader', 'Auditor', 'Admin', '<b>Total</b>'],
         {'Hours': (hours, labels), 'Tasks': (counts, [[str(value) for value in row] for row in counts])},
         custom, '<b>%{customdata[0]}</b><br>%{customdata[1]}<br>%{customdata[2]}<br>'
                 '%{customdata[3]} tasks<br>IDs: %{customdata[4]}<extra></extra>',
         'Pending review intensity', is_dark, 'Current queue · user by review stage',
-        show_counts=show_counts,
+        show_counts=show_counts, total_column=True,
     )
     figure.update_layout(meta={**figure.layout.meta, 'captured_at': pending_df.attrs.get('captured_at')})
     return figure
