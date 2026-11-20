@@ -773,7 +773,19 @@ body {
 }
 .chart-status { margin: 0 12px; color: var(--text-muted); font-size: 11px; overflow-wrap: anywhere; }
 .chart-status:empty { display: none; }
-.rework-chart-controls { justify-content: flex-start; padding: 8px 12px 0; }
+.dashboard-matrix-row .rework-chart-controls {
+    /* Keep the selector in the heatmap's upper-right corner, not in
+       document flow above its title. */
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    z-index: 4;
+    width: auto;
+    justify-content: flex-end;
+    padding: 0;
+    min-height: 0;
+}
+.rework-chart-controls { justify-content: flex-end; padding: 2px 12px; }
 .rework-state-control { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
 .rework-state-toggle { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .rework-state-toggle label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; }
