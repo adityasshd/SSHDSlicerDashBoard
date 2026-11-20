@@ -113,6 +113,48 @@ def test_valid_empty_capture_does_not_fabricate_any_hours():
     assert not build_today_submissions_lollipop(result).data
 
 
+
+def test_zero_hour_submittors_are_hidden_without_changing_verified_totals():
+    zero = {'User': 'Inactive', 'Total Duration': 0, 'Total Tasks': 0,
+            'New Videos (First Time)': 0, 'New Tasks': 0,
+            'Old Rework': 0, 'Old Rework Tasks': 0,
+            'Same-day Rework': 0, 'Same-day Rework Tasks': 0}
+    day = {**DAY, 'rows': [*DAY['rows'], zero]}
+    evidence = submitted_video_output(day, expected_date='2026-11-17')
+    assert evidence['available']
+    assert evidence['values']['submitted_total'] == 13200
+    figure = build_today_submissions_lollipop(evidence)
+    assert list(figure.layout.xaxis.ticktext) == ['A', 'B']
+    assert list(figure.data[0].y) == pytest.approx([3.5, 1/6])
+    assert figure.layout.meta['submitted_seconds'] == 13200
+    assert not any('Inactive' in str(trace.customdata) for trace in figure.data)
+
+    # An all-zero, successfully captured day is not an unavailable/error day.
+    zero_only = submitted_video_output({**DAY, 'rows': [zero]},
+                                       expected_date='2026-11-17')
+    assert zero_only['available'] and zero_only['values']['submitted_total'] == 0
+    empty = build_today_submissions_lollipop(zero_only)
+    assert not empty.data
+    assert 'No submitted video hours' in empty.layout.annotations[0].text
+
+
+def test_zero_hour_submitted_status_candidate_is_hidden():
+    capture = {'display_date': '2026-11-17', 'captured_at': '2026-11-17T12:00:00Z',
+               'items': [
+                   {'user_id': 1, 'username': 'Active',
+                    'submitted_count': 1, 'submitted_duration_seconds': 1800},
+                   {'user_id': 2, 'username': 'Inactive',
+                    'submitted_count': 0, 'submitted_duration_seconds': 0},
+               ]}
+    evidence = submitted_status_snapshot(
+        capture, lambda uid, username: username, '2026-11-17')
+    assert evidence['available']
+    chart = build_today_submissions_lollipop(evidence)
+    assert list(chart.layout.xaxis.ticktext) == ['Active']
+    assert list(chart.data[0].y) == pytest.approx([.5])
+    assert chart.layout.meta['submitted_seconds'] == 1800
+
+
 def test_missing_and_invalid_dated_duration_unavailable_not_zero():
     invalid = {**DAY, 'rows': [{**DAY['rows'][0], 'Old Rework': None}]}
     broken = {**DAY, 'rows': [
