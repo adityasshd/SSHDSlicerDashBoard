@@ -130,6 +130,7 @@ def frame_payload(frame, kind):
     labels = {'User', 'Stage', 'IDs', 'ID', 'AssignedDate', 'ReturnedDate', 'UpdatedDate', 'AssignmentDateBasis',
               'Tier IDs', 'Tier Duration (hrs)', 'Completion State', 'UpdateDateBasis',
               'Verified Tier Duration (hrs)', 'Verified Total Seconds',
+              # Explicit evidence availability is a boolean, not a duration.
               'Verified Hours Available', 'Verified Source Warning'}
     columns = [column for column in FRAME_COLUMNS[kind] if column in frame]
     frame = checked_frame(frame, required, [column for column in columns if column not in labels])
