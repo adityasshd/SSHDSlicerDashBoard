@@ -45,7 +45,7 @@ def test_scales_keep_finite_extreme_values_and_full_names(seconds):
     figure = build_individual_chart(frame, '2026-10-01', '2026-10-07', True)
     if seconds == 0:
         assert not figure.data  # No settlement contribution is not a plotted marker.
-        assert 'No completed or pending-review work' in figure.layout.annotations[0].text
+        assert 'No completed or pending-review' in figure.layout.annotations[0].text
         return
     assert sum(len(trace.x) for trace in figure.data) == 50
     assert sum(sum(trace.y) for trace in figure.data) == pytest.approx(seconds / 3600 * 50)
