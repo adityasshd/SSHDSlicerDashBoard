@@ -183,10 +183,10 @@ def test_dashboard_chart_wired_to_dated_evidence_and_user_filters():
                for node in components(namespace['app'].layout)}
     assert input_ids <= mounted
 
-    with patch('slicing_dashboard.pages.today_submissions.today_iso',
-               return_value='2026-11-17'), \\
-         patch('slicing_dashboard.pages.today_submissions.saved_today_submission_day',
-               return_value=DAY) as saved:
+    with (patch('slicing_dashboard.pages.today_submissions.today_iso',
+                return_value='2026-11-17'),
+          patch('slicing_dashboard.pages.today_submissions.saved_today_submission_day',
+                return_value=DAY) as saved):
         evidence = loader['callback'].__wrapped__(
             '/', 0, 0, {'id': 'fresh-settlement'})
         saved.assert_called_once_with(namespace['dm'])
