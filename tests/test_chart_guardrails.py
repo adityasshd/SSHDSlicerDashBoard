@@ -43,6 +43,10 @@ def test_scales_keep_finite_extreme_values_and_full_names(seconds):
     names = ['Very long full username ' + str(i) * 35 for i in range(50)]
     frame = pd.DataFrame({'User': names, 'Completed Duration': [seconds] * 50})
     figure = build_individual_chart(frame, '2026-10-01', '2026-10-07', True)
+    if seconds == 0:
+        assert not figure.data  # No settlement contribution is not a plotted marker.
+        assert 'No completed or pending-review' in figure.layout.annotations[0].text
+        return
     assert sum(len(trace.x) for trace in figure.data) == 50
     assert sum(sum(trace.y) for trace in figure.data) == pytest.approx(seconds / 3600 * 50)
     assert all(math.isfinite(value) for value in figure.layout.yaxis.range)
@@ -201,8 +205,8 @@ def test_visible_stack_totals_are_outside_and_axis_has_ten_percent_headroom(dark
     frame = pd.DataFrame({'User': ['A', 'A', 'B'], 'Stage': ['Pending Leader', 'Pending Admin', 'Pending Leader'],
                           'Duration': [3600, 7200, 1800], 'Count': [1, 2, 1]})
     pending = build_pending_chart(frame, dark)
-    assert _heatmap_matrix(pending) == [[1, 0, 2], [.5, 0, 0]]
-    assert pending.layout.meta['column_maxima'] == [1, 0, 2]
+    assert _heatmap_matrix(pending) == [[1, 0, 2, 3], [.5, 0, 0, .5]]
+    assert pending.layout.meta['column_maxima'] == [1, 0, 2, 3]
     assert pending.layout.yaxis.autorange == 'reversed'
     assigned = build_assigned_chart(frame.assign(Stage=['New Assigned', 'Rework Assigned', 'New Assigned']), dark)
     labels = {item.y: item for item in assigned.layout.annotations if item.name == 'bar-hour-total'}
@@ -248,7 +252,7 @@ def test_completed_lollipop_labels_and_stems_preserve_values_and_selection():
     figure = build_individual_chart(pd.DataFrame({'User': ['A'], 'Completed Duration': [9000]}), '', '', True)
     assert figure.data[0].text[0] == '02:30'
     assert figure.data[0].type == 'scatter' and figure.data[0].mode == 'markers+text'
-    assert figure.data[0].textposition == 'top center' and figure.data[0].cliponaxis is False
+    assert figure.data[0].textposition == 'middle right' and figure.data[0].cliponaxis is False
     assert figure.layout.clickmode == 'event+select'
     assert figure.layout.shapes[0].y0 == 0 and figure.layout.shapes[0].y1 == 2.5
     assert figure.layout.shapes[0].line.color == figure.data[0].marker.color
@@ -267,7 +271,7 @@ def test_pending_matrix_combines_hours_and_counts_without_changing_the_scale(dar
     figure = build_pending_chart(frame, dark)
     trace = figure.data[0]
     assert list(trace.y[:-1]) == ['A', 'B']
-    assert _heatmap_matrix(figure) == [[1.5, 0, 0], [0, 0, 0]]
+    assert _heatmap_matrix(figure) == [[1.5, 0, 0, 1.5], [0, 0, 0, 0]]
     assert list(trace.customdata[0][0][2:-1]) == ['01:30:00', 3, 'first, second']
     assert trace.customdata[1][2][3] == 4
     assert figure.layout.meta['captured_at'] == frame.attrs['captured_at']
@@ -275,7 +279,10 @@ def test_pending_matrix_combines_hours_and_counts_without_changing_the_scale(dar
     combined = build_pending_chart(frame, dark, show_counts=True)
     assert _heatmap_matrix(combined) == _heatmap_matrix(figure)
     assert combined.layout.meta['column_maxima'] == figure.layout.meta['column_maxima']
-    assert [item.text for item in combined.layout.annotations] == ['01:30 / 3', '00:00 / 0', '00:00 / 0', '00:00 / 0', '00:00 / 0', '00:00 / 4', '01:30 / 3', '00:00 / 0', '00:00 / 4']
+    assert [item.text for item in combined.layout.annotations] == [
+        '01:30 / 3', '00:00 / 0', '00:00 / 0', '01:30 / 3',
+        '00:00 / 0', '00:00 / 0', '00:00 / 4', '00:00 / 4',
+        '01:30 / 3', '00:00 / 0', '00:00 / 4', '01:30 / 7']
     assert trace.hoverlabel.bgcolor[0][0] != trace.hoverlabel.bgcolor[0][1]
     pd.testing.assert_frame_equal(frame, original)
 

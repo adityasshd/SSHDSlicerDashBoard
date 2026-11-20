@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from textwrap import wrap
 from html import escape
 
-from slicing_dashboard.plots.theme import CHART_HEIGHT, USER_COLORS, theme_ctx
+from slicing_dashboard.plots.theme import CHART_HEIGHT, user_color, theme_ctx
 
 
 def build_legend_figure(
@@ -33,7 +33,7 @@ def build_legend_figure(
                 y=[None],
                 name='<br>'.join(escape(part) for part in wrap(str(u), 20)),
                 mode="markers",
-                marker=dict(color=USER_COLORS.get(u, "#999"), size=10),
+                marker=dict(color=user_color(u), size=10),
                 showlegend=True,
                 visible=True if is_visible else "legendonly",
             )
@@ -60,6 +60,9 @@ def build_legend_figure(
         xaxis=dict(visible=False),
         yaxis=dict(visible=False),
         hovermode=False,
-        uirevision="user-filter-legend",
+        # Change revision when a dashboard-wide selection changes so the
+        # legend cannot preserve a stale local visibility state.
+        uirevision=('user-filter-legend', tuple(
+            u for u in dict.fromkeys(available_users or []) if u in current_selection)),
     )
     return fig

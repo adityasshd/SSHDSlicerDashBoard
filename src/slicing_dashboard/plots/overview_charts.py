@@ -34,7 +34,7 @@ def build_review_workload_donut(frame, is_dark=True):
                           x=.5, y=.5, xref='paper', yref='paper', showarrow=False,
                           font={'size': 17})
     figure.update_layout(template=theme['template'], height=340, showlegend=True,
-        title={'text': 'Review workload mix', 'subtitle': {'text': 'Current task queue · independent of period dates', 'font': {'size': 10}}}, paper_bgcolor=theme['bg_color'], plot_bgcolor=theme['bg_color'],
+        title={'text': 'Review workload mix'}, paper_bgcolor=theme['bg_color'], plot_bgcolor=theme['bg_color'],
         font={'color': theme['font_color'], 'family': 'Inter, sans-serif'},
         hoverlabel={'bgcolor': theme['hover_bg'], 'font_color': theme['hover_fg']},
         margin={'l': 20, 'r': 20, 't': 54, 'b': 90},

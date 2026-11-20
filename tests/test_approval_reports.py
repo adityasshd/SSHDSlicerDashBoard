@@ -81,7 +81,8 @@ def test_dashboard_cleanup_retains_reports_and_management():
     namespace, _ = application_namespace()
     by_id = {getattr(node, 'id', None): node for node in components(namespace['app'].layout)}
     assert 'error-rework-chart' not in by_id
-    assert 'approval-trend-chart' in by_id
+    assert 'approval-trend-chart' not in by_id
+    assert 'individual-chart' in by_id
     assert 'approval-outcomes-chart' not in by_id
     assert by_id['main-container'].className == 'theme-dark'
     assert by_id['theme-toggle'].n_clicks == 0
@@ -97,20 +98,22 @@ def test_dashboard_cleanup_retains_reports_and_management():
     assert 'error-rework-chart' not in callback_ids
 
 
-def test_trend_rendering_is_pure_and_route_scoped():
+def test_retired_trend_data_remains_pure_and_handles_user_filters():
+    # The historical chart was removed from the dashboard, but its report
+    # calculations remain independently testable for report consumers.
     namespace, manager = application_namespace()
     for selection in (['Priya'], ['Priya', 'Riya']):
-        for theme in (0, 1):
-            figure, note = namespace['render_dashboard_trend'](fixture(), selection, theme, '/')
+        for dark in (True, False):
+            report = prepare_approval_trend(fixture(), selection)
+            figure = build_approval_trend_chart(
+                report, dark, primary_only=True, primary_metric='completed')
             assert figure.data[0].y[-1] == (1 if len(selection) == 1 else 1.5)
-            assert '2 of 30 source days' in note and 'Missing dates remain gaps' in note
+            assert report['calendar_days'] == 30
+            assert figure.data[0].y[0] is None
+            assert not figure.data[0].connectgaps
     manager.get_daily_report_data.assert_not_called()
     manager.get_todays_work_df.assert_not_called()
-    with pytest.raises(dash.exceptions.PreventUpdate):
-        namespace['render_dashboard_trend'](fixture(), None, 0, '/reports/user')
-    data = fixture()
-    data['history'][-1]['metadata']['error'] = 'Offline'
-    assert 'Saved evidence' in namespace['render_dashboard_trend'](data, None, 0, '/')[1]
+    assert 'dashboard-trend-store.data' not in namespace['app'].callback_map
 
 
 def test_persisted_batch_stages_supply_filtered_area_series_and_honest_gaps():
@@ -133,7 +136,11 @@ def test_persisted_batch_stages_supply_filtered_area_series_and_honest_gaps():
     filtered = prepare_approval_trend(fixture(), ['Priya'], payload)
     assert filtered['rows'][-2]['auditor_seconds'] is None
     namespace, manager = application_namespace()
-    figure, note = namespace['render_dashboard_trend'](fixture(), None, 0, '/', {'approvals': payload})
+    # The dashboard now uses the effective-work lollipop, so the historical
+    # completion line is tested as a standalone, non-mounted report builder.
+    selected = prepare_approval_trend(fixture(), approvals=payload)
+    figure = build_approval_trend_chart(
+        selected, True, primary_only=True, primary_metric='completed')
     assert all('unavailable' not in trace.name for trace in figure.data)
     assert len(figure.data) == 1
     assert figure.data[0].name == 'Completed video'
@@ -189,12 +196,11 @@ def test_source_refresh_loads_once_and_editor_content_stays_mounted():
     assert mounted['settings-mapping-panel'].children is editor
     manager.get_daily_report_data.assert_not_called()
     manager.get_slice_data_overview_df.assert_not_called()
-    with patch('dash.ctx', MagicMock(triggered_id='refresh-btn')):
-        result = namespace['load_dashboard_trend']('2026-10-06', 1, 1, '/')
-        assert result.pop('request_id') and result.pop('force_refresh')
-        assert result == {**fixture(), 'approvals': {}, 'efficiency_history': []}
+    # Removing the redundant top trend must also remove its extra refresh
+    # capture, leaving the separately captured duration panels intact.
+    assert 'dashboard-trend-store.data' not in namespace['app'].callback_map
     manager.get_daily_report_data.assert_not_called()
-    manager.get_dashboard_trend_data.assert_called_once_with('2026-10-06', force_refresh=True)
+    manager.get_dashboard_trend_data.assert_not_called()
     manager.prepare_daily_work.assert_not_called()
 
 

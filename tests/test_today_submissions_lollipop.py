@@ -4,6 +4,7 @@ The plot displays video duration from a dated Daily submission report, not
 the count-only interim chart, whole-batch duration or time spent working.
 """
 import pytest
+from unittest.mock import patch
 
 from slicing_dashboard.reporting.daily_output import (
     submitted_video_output, submission_rework_counts,
@@ -80,8 +81,9 @@ def test_line_is_submitted_video_hours_and_lollipops_are_rework_hours(dark):
     assert figure.layout.meta['rework_is_subset'] is True
     assert figure.layout.meta['screen_time_included'] is False
     assert 'HH:MM' in figure.layout.yaxis.title.text
-    assert 'includes' in figure.layout.title.subtitle.text
-    assert 'reconciliation pending' in figure.layout.title.subtitle.text
+    assert figure.layout.title.subtitle.text is None
+    assert figure.layout.title.text.startswith("Today's submitted video duration")
+    assert figure.layout.meta['partial'] is True
     figure.to_json()
 
 
@@ -109,6 +111,48 @@ def test_valid_empty_capture_does_not_fabricate_any_hours():
     assert result['available'] is True
     assert result['values']['submitted_total'] == 0
     assert not build_today_submissions_lollipop(result).data
+
+
+
+def test_zero_hour_submittors_are_hidden_without_changing_verified_totals():
+    zero = {'User': 'Inactive', 'Total Duration': 0, 'Total Tasks': 0,
+            'New Videos (First Time)': 0, 'New Tasks': 0,
+            'Old Rework': 0, 'Old Rework Tasks': 0,
+            'Same-day Rework': 0, 'Same-day Rework Tasks': 0}
+    day = {**DAY, 'rows': [*DAY['rows'], zero]}
+    evidence = submitted_video_output(day, expected_date='2026-11-17')
+    assert evidence['available']
+    assert evidence['values']['submitted_total'] == 13200
+    figure = build_today_submissions_lollipop(evidence)
+    assert list(figure.layout.xaxis.ticktext) == ['A', 'B']
+    assert list(figure.data[0].y) == pytest.approx([3.5, 1/6])
+    assert figure.layout.meta['submitted_seconds'] == 13200
+    assert not any('Inactive' in str(trace.customdata) for trace in figure.data)
+
+    # An all-zero, successfully captured day is not an unavailable/error day.
+    zero_only = submitted_video_output({**DAY, 'rows': [zero]},
+                                       expected_date='2026-11-17')
+    assert zero_only['available'] and zero_only['values']['submitted_total'] == 0
+    empty = build_today_submissions_lollipop(zero_only)
+    assert not empty.data
+    assert 'No submitted video hours' in empty.layout.annotations[0].text
+
+
+def test_zero_hour_submitted_status_candidate_is_hidden():
+    capture = {'display_date': '2026-11-17', 'captured_at': '2026-11-17T12:00:00Z',
+               'items': [
+                   {'user_id': 1, 'username': 'Active',
+                    'submitted_count': 1, 'submitted_duration_seconds': 1800},
+                   {'user_id': 2, 'username': 'Inactive',
+                    'submitted_count': 0, 'submitted_duration_seconds': 0},
+               ]}
+    evidence = submitted_status_snapshot(
+        capture, lambda uid, username: username, '2026-11-17')
+    assert evidence['available']
+    chart = build_today_submissions_lollipop(evidence)
+    assert list(chart.layout.xaxis.ticktext) == ['Active']
+    assert list(chart.data[0].y) == pytest.approx([.5])
+    assert chart.layout.meta['submitted_seconds'] == 1800
 
 
 def test_missing_and_invalid_dated_duration_unavailable_not_zero():
@@ -171,6 +215,31 @@ def test_dashboard_chart_wired_to_dated_evidence_and_user_filters():
     assert {'id': 'selected-users-store', 'property': 'data'} in render['inputs']
     assert {'id': 'dashboard-today-submissions-evidence', 'property': 'data'} in render['inputs']
 
+    # Regression: the old trend store was removed when the top chart changed.
+    # Depending on it left the submitted-video plot stuck in its initial state.
+    loader = callbacks['dashboard-today-submissions-evidence.data']
+    input_ids = {entry['id'] for entry in loader['inputs']}
+    assert 'dashboard-trend-store' not in input_ids
+    assert 'dashboard-panel-request' in input_ids
+    from tests.test_daily_report_page import components
+    mounted = {getattr(node, 'id', None)
+               for node in components(namespace['app'].layout)}
+    assert input_ids <= mounted
+
+    with (patch('slicing_dashboard.pages.today_submissions.today_iso',
+                return_value='2026-11-17'),
+          patch('slicing_dashboard.pages.today_submissions.saved_today_submission_day',
+                return_value=DAY) as saved):
+        evidence = loader['callback'].__wrapped__(
+            '/', 0, 0, {'id': 'fresh-settlement'})
+        saved.assert_called_once_with(namespace['dm'])
+        chart = render['callback'].__wrapped__(evidence, ['A'], 0, '/')
+    assert list(chart.data[0].x) == [0]
+    assert list(chart.layout.xaxis.ticktext) == ['A']
+    assert chart.data[0].customdata[0][0] == 'A'
+    assert chart.layout.meta['submitted_seconds'] == pytest.approx(12600)
+
+
 
 
 def test_unverified_efficiency_stock_shows_only_a_labeled_line():
@@ -201,7 +270,8 @@ def test_unverified_efficiency_stock_shows_only_a_labeled_line():
     assert fig.layout.meta['classification_available'] is False
     assert fig.layout.meta['old_rework_seconds'] is None
     assert fig.layout.meta['same_day_rework_seconds'] is None
-    assert 'NOT verified as submitted today' in fig.layout.title.subtitle.text
+    assert fig.layout.title.subtitle.text is None
+    assert fig.layout.title.text.startswith('Submitted-status video duration')
     assert 'Submitted-status video duration' in fig.layout.title.text
     filtered = select_submitted_status_snapshot(evidence, ['Priya'])
     assert filtered['values']['submitted_total'] == 1800

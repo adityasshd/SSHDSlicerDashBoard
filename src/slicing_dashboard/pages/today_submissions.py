@@ -63,12 +63,15 @@ def register_today_submissions(app, manager):
         Input('report-location', 'pathname'),
         Input('refresh-btn', 'n_clicks'),
         Input('auto-refresh-interval', 'n_intervals'),
-        Input('dashboard-trend-store', 'data'),
+        # The old trend store was retired with the redundant top line chart.
+        # The existing panel request triggers this saved-only report again
+        # on date/settlement changes without depending on a removed component.
+        Input('dashboard-panel-request', 'data'),
     )
-    def load_today(pathname, _clicks, _intervals, trend):
+    def load_today(pathname, _clicks, _intervals, _panel_request):
         if pathname not in (None, '/', '/dashboard'):
             raise dash.exceptions.PreventUpdate
-        day = saved_today_submission_day(manager, trend)
+        day = saved_today_submission_day(manager)
         # Prefer real dated submitted video events. If the upstream task
         # history is forbidden or incomplete, show a clearly differentiated
         # submitted-status stock line, with NO inferred rework lollipops.

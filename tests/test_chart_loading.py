@@ -9,40 +9,81 @@ from slicing_dashboard.db import DatabaseManager
 from tests.test_daily_report_page import application_namespace
 
 
-def test_chart_dependencies_exclude_workflow_capture_and_slow_selection_writer():
-    namespace, _ = application_namespace()
+def test_lead_lollipop_uses_existing_completion_and_pending_captures():
+    namespace, manager = application_namespace()
     callbacks = namespace['app'].callback_map
+    completion = next(key for key in callbacks
+                      if 'individual-chart.figure' in key and '@' not in key)
     pending = next(key for key in callbacks if 'pending-chart.figure' in key)
-    trend = next(key for key in callbacks if 'dashboard-trend-ready.data' in key)
-    assert 'workflow-notification-interval' not in {
-        entry['id'] for entry in callbacks['dashboard-trend-store.data']['inputs']}
-    for identity in (pending, trend):
-        callback = callbacks[identity]
-        assert 'workflow-sync-store' not in {item['id'] for item in callback['inputs']}
-    selection = callbacks['selected-users-store.data']
-    assert {item['id'] for item in selection['inputs']} == {'universal-legend', 'individual-chart'}
-    assert not any('kpi-cards' in key and 'selected-users-store' in key for key in callbacks)
+    assert 'dashboard-trend-store.data' not in callbacks
+    assert not any('approval-trend-chart.figure' in key for key in callbacks)
+    capture_inputs = {item['id'] for item in callbacks[completion]['inputs']}
+    assert {'dashboard-panel-request', 'dashboard-saved-completion',
+            'dashboard-pending-request', 'dashboard-saved-pending',
+            'dashboard-live-pending'} <= capture_inputs
+    for key in (completion, pending):
+        assert 'workflow-sync-store' not in {
+            item['id'] for item in callbacks[key]['inputs']}
+    selection = next(value for key, value in callbacks.items()
+                     if 'selected-users-store.data' in key)
+    assert {item['id'] for item in selection['inputs']} == {
+        'universal-legend', 'individual-chart'}
+    assert {'id': 'universal-legend', 'property': 'restyleData'} in selection['inputs']
+    from tests.test_daily_report_page import components
+    ids = [getattr(node, 'id', None) for node in components(namespace['app'].layout)]
+    assert ids.count('individual-chart') == ids.count('universal-legend') == 1
+    assert 'approval-trend-chart' not in ids
+    manager.get_dashboard_trend_data.assert_not_called()
 
 
-def test_line_load_does_not_run_live_workflow_or_daily_scans():
+
+def test_plotly_team_legend_filters_every_dashboard_visual():
+    from tests.test_daily_report_page import components
+    from slicing_dashboard.plots.theme import user_color
     namespace, manager = application_namespace()
-    manager.get_dashboard_trend_data.return_value = {'history': []}
-    with patch('dash.ctx', MagicMock(triggered_id='refresh-btn')):
-        result = namespace['load_dashboard_trend']('2026-10-06', 1, 1, '/')
-        assert result['history'] == [] and result['request_id'] and result['force_refresh']
-    manager.get_dashboard_trend_data.assert_called_once_with('2026-10-06', force_refresh=True)
-    manager.get_daily_report_data.assert_not_called()
-    manager.get_workflow_data.assert_not_called()
+    app = namespace['app']
+    roster = namespace['available_users']
+    assert len(roster) >= 2
+    legend = next(node for node in components(app.layout)
+                  if getattr(node, 'id', None) == 'universal-legend')
+    assert isinstance(legend, dash.dcc.Graph)
+    assert 'universal-legend.figure' in app.callback_map
+    assert 'selected-users-store.data' in app.callback_map
+    selection_cb = app.callback_map['selected-users-store.data']
+    assert {'id': 'universal-legend', 'property': 'restyleData'} in selection_cb['inputs']
+    select = selection_cb['callback'].__wrapped__
+    with patch('dash.ctx', MagicMock(triggered_id='universal-legend')):
+        result = select([{'visible': ['legendonly']}, [0]], None, roster)
+    assert result == roster[1:]
+    with patch('dash.ctx', MagicMock(triggered_id='universal-legend')):
+        restored = select([{'visible': [True]}, [0]], None, result)
+    assert restored == roster
+    with patch('dash.ctx', MagicMock(triggered_id='universal-legend')):
+        only_first = select([{'visible': [True, 'legendonly']}, [0, 1]], None,
+                            roster)
+    assert only_first == [user for user in roster if user != roster[1]]
+    with patch('dash.ctx', MagicMock(triggered_id='individual-chart')):
+        after_point = select(None, {'points': [{'x': roster[0]}]}, roster)
+    assert after_point == roster[1:]
 
+    render = app.callback_map['universal-legend.figure']['callback'].__wrapped__
+    visible = render(roster[1:], 0, '/')
+    assert len(visible.data) == len(roster)
+    assert visible.data[0].visible == 'legendonly'
+    assert visible.data[1].visible is True
+    assert visible.data[0].marker.color == user_color(roster[0])
+    # The visible legend and selected-user store share the same selection.
+    for output in ('individual-chart.figure', 'pending-chart.figure',
+                   'rework-ratio-chart.figure', 'assigned-chart.figure',
+                   'review-workload-chart.figure',
+                   'today-submissions-lollipop-chart.figure',
+                   'return-reasons-chart.figure'):
+        callbacks = [item for key, item in app.callback_map.items() if output in key]
+        assert callbacks and any(
+            {'id': 'selected-users-store', 'property': 'data'} in callback['inputs']
+            for callback in callbacks), output
+    manager.get_user_breakdown_df.assert_not_called()
 
-def test_line_filter_passes_both_dates_to_the_saved_history_reader():
-    namespace, manager = application_namespace()
-    callback = namespace['app'].callback_map['dashboard-trend-store.data']
-    assert {'id': 'date-from', 'property': 'value'} in callback['inputs']
-    with patch('dash.ctx', MagicMock(triggered_id='date-from')):
-        namespace['load_dashboard_trend']('2026-10-06', 0, 0, '/', '2026-10-02')
-    manager.get_dashboard_trend_data.assert_called_once_with(
-        '2026-10-06', force_refresh=False, start_date='2026-10-02')
 
 
 def test_saved_line_range_cache_and_single_day_selection(tmp_path):

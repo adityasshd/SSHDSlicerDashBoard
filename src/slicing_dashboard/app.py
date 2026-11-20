@@ -23,11 +23,11 @@ from slicing_dashboard.plots import (
     USER_COLORS,
     format_seconds,
     empty_fig,
+    build_legend_figure,
     build_rework_ratio_chart,
     build_individual_chart,
     build_pending_chart,
     build_assigned_chart,
-    build_legend_figure,
     build_kpi_layout,
     build_return_reasons_chart,
     create_table,
@@ -37,19 +37,16 @@ from slicing_dashboard.plots.tables import register_duration_table_callbacks
 from slicing_dashboard.plots.guardrails import state_figure
 from slicing_dashboard.management.ui import layout_settlement_management, layout_user_mapping, register_management_callbacks
 from slicing_dashboard.management.periods import today_iso
-from slicing_dashboard.reporting.settlement_snapshots import manager_snapshot, period_for_range, period_for_selection
+from slicing_dashboard.reporting.settlement_snapshots import period_for_selection
 from slicing_dashboard.processing.daily_work import EXCLUDED
 from slicing_dashboard.pages.components import add_reporting_shell, contain_graphs
 from slicing_dashboard.pages.dashboard_panels import panel_stores, register_dashboard_panels
-from slicing_dashboard.pages.dashboard_trend import trend_stores, register_dashboard_trend
 from slicing_dashboard.pages.today_submissions import register_today_submissions
 from slicing_dashboard.pages.status_report import register_status_reports
 from slicing_dashboard.pages.daily_report import build_daily_report_content
 from slicing_dashboard.pages.user_report import build_user_report_content, completion_card, completion_note
 from slicing_dashboard.reporting.dashboard_reports import report_users
 from slicing_dashboard.reporting.user_reports import prepare_user_report, get_user_completion_data
-from slicing_dashboard.reporting.approval_reports import prepare_approval_trend
-from slicing_dashboard.plots.approval_trend_chart import build_approval_trend_chart
 from slicing_dashboard.pages.workflow_history import notification_panel, history_table, notification_updates, notification_toasts
 from slicing_dashboard.pages.monthly_returns import register_monthly_returns
 
@@ -240,15 +237,25 @@ app.layout = html.Div(
                 ], className='dashboard-heading'),
                 html.Div(build_kpi_layout({}, {}, True), id="kpi-cards", className="kpi-overview-container mb-2"),
 
-                dcc.Store(id="dashboard-trend-store"),
                 dcc.Store(id="dashboard-today-submissions-evidence"),
+                # The completed lollipop now leads the dashboard. Its diamond
+                # marks completed + current pending-review video duration.
+                # Keep the clickable team filter adjacent to the chart.
                 html.Section([
-                    dcc.Graph(id="approval-trend-chart", figure=_initial_fig,
-                              config=_graph_cfg, responsive=True, className="report-comparison-chart"),
-                    html.Details([
-                        html.Summary('Data coverage'),
-                        html.Div(id="approval-trend-status", **{"aria-live": "polite"}),
-                    ], className='chart-details'),
+                    dbc.Row([
+                        dbc.Col(dcc.Graph(
+                            id="individual-chart", figure=_initial_fig,
+                            config=_graph_cfg, responsive=True,
+                            className="report-comparison-chart",
+                            style={"height": "420px", "width": "100%"},
+                        ), width=12, lg=9),
+                        dbc.Col(dcc.Graph(
+                            id="universal-legend", figure=_initial_fig,
+                            config=_graph_cfg, responsive=True,
+                            className="chart-compact",
+                            style={"height": "420px", "width": "100%"},
+                        ), width=12, lg=3),
+                    ], className="dashboard-completion-lead"),
                 ], className="glass-panel report-section dashboard-lead"),
 
                 dbc.Row([
@@ -263,7 +270,6 @@ app.layout = html.Div(
                 # ── Stores & Intervals ───────────────────────────────
                 dcc.Store(id="selected-users-store", data=available_users),
                 *panel_stores(),
-                *trend_stores(),
                 dcc.Store(id="current-period-range", data={"start": default_start, "end": default_end}),
                 dcc.Store(id="server-status-store", data=dm.get_server_status()),
                 dcc.Interval(
@@ -278,20 +284,6 @@ app.layout = html.Div(
                     interval=30 * 1000,  # 30 seconds
                     n_intervals=0,
                 ),
-
-                # Completed output and the shared team filter stay together.
-                dbc.Row([
-                    dbc.Col(dcc.Graph(
-                        id="individual-chart", figure=_initial_fig, config=_graph_cfg,
-                        className="glass-panel p-1 rounded shadow-sm chart-compact",
-                        style=_graph_style,
-                    ), width=12, lg=9),
-                    dbc.Col(dcc.Graph(
-                        id="universal-legend", figure=_initial_fig, config=_graph_cfg,
-                        className="glass-panel p-1 rounded shadow-sm chart-compact",
-                        style=_graph_style,
-                    ), width=12, lg=3),
-                ], className="dashboard-chart-row dashboard-completion-row"),
 
                 # Comparable matrices share a row and the same responsive height.
                 dbc.Row([
@@ -972,29 +964,39 @@ def _refresh_scope(callback):
     State('selected-users-store', 'data'), prevent_initial_call=True,
 )
 def select_dashboard_users(restyle_data, click_data, stored_users):
-    """Apply user controls without waiting for KPI and batch source reads."""
+    """Interpret Plotly legend toggles as shared dashboard filters.
+
+    The legend has one trace for each member in available_users, in that
+    exact order. Plotly emits both single-item and multi-item restyle changes
+    (e.g. on double-click). Treat the emitted visible values as authoritative.
+    """
     selection = list(available_users if stored_users is None else stored_users)
     trigger = dash.ctx.triggered_id
     if trigger == 'universal-legend' and restyle_data:
         updates, indices = restyle_data
-        if 'visible' in updates:
-            for position, index in enumerate(indices):
-                if index < len(available_users):
-                    visible = updates['visible']
-                    visible = visible[position] if isinstance(visible, list) else visible
-                    user = available_users[index]
-                    if visible == 'legendonly' and user in selection:
+        changed = updates.get('visible') if isinstance(updates, dict) else None
+        if changed is not None:
+            if not isinstance(changed, list):
+                changed = [changed] * len(indices)
+            for index, visibility in zip(indices, changed):
+                if not isinstance(index, int) or not 0 <= index < len(available_users):
+                    continue
+                user = available_users[index]
+                if visibility in ('legendonly', False):
+                    if user in selection:
                         selection.remove(user)
-                    elif (visible is True or visible is None) and user not in selection:
+                elif visibility is True:
+                    if user not in selection:
                         selection.append(user)
     elif trigger == 'individual-chart' and click_data and click_data.get('points'):
         point = click_data['points'][0]
         user = point.get('x') or point.get('label')
-        if user:
+        if user in available_users:
             if user in selection:
                 selection.remove(user)
             else:
                 selection.append(user)
+    selection = [user for user in available_users if user in selection]
     return selection if selection != stored_users else dash.no_update
 
 
@@ -1193,79 +1195,24 @@ def heartbeat_check(n_intervals):
     return status, badge, banner
 
 
+
 @app.callback(
     Output("universal-legend", "figure"),
     Input("selected-users-store", "data"), Input("theme-toggle", "n_clicks"),
     Input("report-location", "pathname"),
 )
 def render_dashboard_legend(selected_users, theme_clicks, pathname):
-    """Paint the user controls immediately, independently of upstream latency."""
+    """Reflect the shared selection in the original interactive Plotly legend."""
     if pathname not in (None, "/", "/dashboard"):
         raise dash.exceptions.PreventUpdate
-    return build_legend_figure(available_users,
+    return build_legend_figure(
+        available_users,
         available_users if selected_users is None else selected_users,
-        theme_clicks is None or theme_clicks % 2 == 0)
-
-
-@app.callback(
-    Output("dashboard-trend-store", "data"),
-    Input("date-to", "value"), Input("refresh-btn", "n_clicks"),
-    Input("auto-refresh-interval", "n_intervals"), Input("report-location", "pathname"),
-    Input('date-from', 'value'),
-)
-def load_dashboard_trend(end_date, n_clicks, n_intervals, pathname, start_date=None):
-    """Paint saved evidence before the independent completion-status check."""
-    if pathname not in (None, "/", "/dashboard") or not end_date:
-        raise dash.exceptions.PreventUpdate
-    trigger = dash.ctx.triggered_id
-    options = {'force_refresh': trigger in ("refresh-btn", "auto-refresh-interval")}
-    if start_date:
-        options['start_date'] = start_date
-        closed = period_for_range(dm.get_available_periods(), start_date, end_date)
-        if closed is not None:
-            try:
-                frozen = manager_snapshot(dm, start_date, end_date)
-            except (ValueError, KeyError, TypeError):
-                return {'validation_error': 'This settlement snapshot is damaged or unreadable.'}
-            if frozen is None:
-                return {'validation_error': 'No verified historical snapshot is available for this settlement.'}
-            return {**frozen['trend'], 'request_id': uuid4().hex,
-                    'frozen': True, 'force_refresh': False}
-    try:
-        return {**dm.get_dashboard_trend_data(min(end_date, today_iso()), **options),
-                'request_id': uuid4().hex, 'force_refresh': options['force_refresh']}
-    except ValueError:
-        return {'validation_error': 'Select a valid date range ending on or before today.'}
-
-
-def render_dashboard_trend(data, selected_users, theme_clicks, pathname, workflow=None):
-    if pathname not in (None, "/", "/dashboard"):
-        raise dash.exceptions.PreventUpdate
-    if not data:
-        return empty_fig(), "Loading completed video history…"
-    if data.get('validation_error'):
-        return state_figure(data['validation_error'], (theme_clicks or 0) % 2 == 0), data['validation_error']
-    # The dashboard's initial all-users selection must include new accounts.
-    users = selected_users if selected_users and len(selected_users) < len(available_users) else None
-    approvals = (workflow or {}).get('approvals') or data.get('approvals')
-    if (workflow or {}).get('error') and approvals:
-        approvals = {**approvals, 'error': (workflow or {})['error']}
-    report = prepare_approval_trend(data, users, approvals)
-    is_dark = theme_clicks is None or theme_clicks % 2 == 0
-    completion_days = sum(row.get('completed_seconds') is not None for row in report['rows'])
-    note = (f"{completion_days} of {report['calendar_days']} source days recorded · UTC+08. "
-            "Completed video includes confirmed errors. Missing dates remain gaps.")
-    if report['range_end'] == today_iso():
-        note += " Today is provisional."
-    if any(day.get('metadata', {}).get('error') or day.get('metadata', {}).get('persistence_error')
-           for day in data.get('efficiency_history', [])):
-        note += " Saved evidence is shown; refresh or persistence could not be verified."
-    return build_approval_trend_chart(report, is_dark, primary_only=True, primary_metric='completed'), note
-
+        theme_clicks is None or theme_clicks % 2 == 0,
+    )
 
 
 register_dashboard_panels(app, dm, available_users)
-register_dashboard_trend(app, dm, render_dashboard_trend, available_users)
 register_status_reports(app, dm)
 
 

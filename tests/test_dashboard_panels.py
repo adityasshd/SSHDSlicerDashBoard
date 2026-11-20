@@ -151,8 +151,8 @@ def test_saved_request_and_render_do_no_source_reads_and_have_no_live_input():
     assert pending_request == request
     assert saved['captured_at'] == packet['captured_at']
     paint = next(value for key, value in callbacks.items() if 'individual-chart.figure' in key and '@' not in key)
-    assert not any(item['id'].startswith('dashboard-live-') for item in paint['inputs'])
-    figure, status, overview, ready, _ = paint['callback'].__wrapped__(request, saved, ['Riya'], 0, None, '/', None)
+    assert 'dashboard-live-completion' not in {item['id'] for item in paint['inputs']}
+    figure, status, overview, ready, _ = paint['callback'].__wrapped__(request, saved, ['Riya'], 0, None, None, None, None, '/', None)
     assert ready['request_id'] == request['id']
     assert len(figure.data) == 1 and status == '' and overview == '01:00:00'
     manager.fetch_dashboard_data.assert_not_called()
@@ -211,9 +211,9 @@ def test_range_capture_waits_for_first_paint_and_selection_does_not_recapture():
         capture['callback'].__wrapped__({'request_id': 'old-range'}, request)
     manager.get_user_breakdown_df.assert_not_called()
     paint = next(value for key, value in callbacks.items() if 'individual-chart.figure' in key and '@' not in key)
-    _, _, _, ready, painted = paint['callback'].__wrapped__(request, None, ['Riya'], 0, None, '/', None)
+    _, _, _, ready, painted = paint['callback'].__wrapped__(request, None, ['Riya'], 0, None, None, None, None, '/', None)
     assert ready['request_id'] == painted['request_id'] == 'new-range'
-    _, _, _, repeat, _ = paint['callback'].__wrapped__(request, None, [], 1, None, '/', ready)
+    _, _, _, repeat, _ = paint['callback'].__wrapped__(request, None, [], 1, None, None, None, None, '/', ready)
     assert repeat is dash.no_update
 
 
@@ -223,7 +223,7 @@ def test_live_result_is_reapplied_after_a_late_selection_paint():
     live = next(value for key, value in callbacks.items() if 'individual-chart.figure@' in key)
     assert {'id': 'dashboard-painted-completion', 'property': 'data'} in live['inputs']
     packet = {**capture_panel(fixture_manager(), 'completion', '2026-10-01', '2026-10-08'), 'request_id': 'one'}
-    figure, status, overview = live['callback'].__wrapped__(packet, {'request_id': 'one'}, request_for(), None, ['Riya'], 0, '/')
+    figure, status, overview = live['callback'].__wrapped__(packet, {'request_id': 'one'}, request_for(), None, ['Riya'], 0, '/', None, None, None)
     assert len(figure.data) == 1 and status == '' and overview == '01:00:00'
 
 
@@ -399,7 +399,8 @@ def test_review_overview_heatmap_and_donut_share_a_filtered_atomic_response(sele
     matrix, _, overview, donut, _, _ = callback(request, packet, selected, 0, None, '/', None)
     assert format_seconds(expected) in payload_text(overview)
     if expected:
-        assert sum(matrix.layout.meta["column_totals"]) * 3600 == expected
+        assert matrix.layout.meta["grand_total"] * 3600 == expected
+        assert matrix.layout.meta["column_totals"][-1] * 3600 == expected
         assert sum(donut.data[0].values) == expected
     else:
         assert not matrix.data and not donut.data
