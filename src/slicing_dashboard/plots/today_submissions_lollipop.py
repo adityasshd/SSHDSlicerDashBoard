@@ -70,8 +70,12 @@ def build_today_submissions_lollipop(output, is_dark=True):
            for column, total in comparisons):
         raise ValueError('User totals disagree with verified daily submission evidence')
 
+    # Validate/reconcile every source row first, then remove zero-hour users
+    # from the visual only. Keep source totals (including verified zero rows)
+    # unchanged in metadata and all downstream calculations.
+    parsed = [row for row in parsed if row['submitted'] > 0]
     if not parsed:
-        return state_figure('No dated video submissions recorded for the selected users.',
+        return state_figure('No submitted video hours for the selected users.',
                             is_dark, 390)
 
     parsed.sort(key=lambda row: (-row['submitted'], row['User'].casefold()))
@@ -140,28 +144,13 @@ def build_today_submissions_lollipop(output, is_dark=True):
 
     upper = max(max(totals, default=0) / 3600 * 1.23, 1 / 60)
     ticks, ticklabels = duration_ticks(0, upper)
-    subtitle = (
-        ('Today so far · submitted video duration includes old and same-day rework'
-         '<br>Rework lollipops are components of Submitted, not additional hours')
-        if classified else
-        ('Current submitted-status VIDEO duration from the efficiency snapshot'
-         '<br>NOT verified as submitted today · rework categories unavailable')
-    )
-    if output.get('is_snapshot'):
-        subtitle += ' · saved snapshot'
-    if output.get('reconciliation_pending'):
-        subtitle += ' · reconciliation pending'
-    if output.get('capture'):
-        subtitle += ' · captured ' + str(output['capture'])[:19]
-
     fig.update_layout(
         title={'text': ("Today's submitted video duration" if classified
-                        else "Submitted-status video duration") + ' · ' + str(output['date']),
-               'subtitle': {'text': subtitle, 'font': {'size': 10}}},
+                        else "Submitted-status video duration") + ' · ' + str(output['date'])},
         template=theme['template'], height=max(390, 390 + max(0, len(users) - 9) * 10),
         paper_bgcolor=theme['bg_color'], plot_bgcolor=theme['bg_color'],
         font={'family': 'Inter, sans-serif', 'size': 12, 'color': theme['font_color']},
-        margin={'l': 72, 'r': 30, 't': 103, 'b': 96},
+        margin={'l': 72, 'r': 30, 't': 66, 'b': 96},
         showlegend=True,
         legend={'orientation': 'h', 'x': 0, 'y': -.25,
                 'xanchor': 'left', 'yanchor': 'top', 'font': {'size': 11}},
