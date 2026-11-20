@@ -28,7 +28,7 @@ def test_lead_lollipop_uses_existing_completion_and_pending_captures():
                      if 'selected-users-store.data' in key)
     assert {item['id'] for item in selection['inputs']} == {
         'universal-legend', 'individual-chart'}
-    assert {'id': 'universal-legend', 'property': 'value'} in selection['inputs']
+    assert {'id': 'universal-legend', 'property': 'restyleData'} in selection['inputs']
     from tests.test_daily_report_page import components
     ids = [getattr(node, 'id', None) for node in components(namespace['app'].layout)]
     assert ids.count('individual-chart') == ids.count('universal-legend') == 1
@@ -37,32 +37,42 @@ def test_lead_lollipop_uses_existing_completion_and_pending_captures():
 
 
 
-def test_team_legend_checkboxes_filter_every_dashboard_visual():
+def test_plotly_team_legend_filters_every_dashboard_visual():
     from tests.test_daily_report_page import components
-    from unittest.mock import patch
+    from slicing_dashboard.plots.theme import user_color
     namespace, manager = application_namespace()
     app = namespace['app']
     roster = namespace['available_users']
     assert len(roster) >= 2
-    options = next(node for node in components(app.layout)
-                   if getattr(node, 'id', None) == 'universal-legend')
-    assert isinstance(options, dash.dcc.Checklist)
-    assert options.value == roster
-    assert [option['value'] for option in options.options] == roster
-    selected_callback = next(value for key, value in app.callback_map.items()
-                             if 'selected-users-store.data' in key)
-    assert {'id': 'universal-legend', 'property': 'value'} in selected_callback['inputs']
-    select = selected_callback['callback'].__wrapped__
+    legend = next(node for node in components(app.layout)
+                  if getattr(node, 'id', None) == 'universal-legend')
+    assert isinstance(legend, dash.dcc.Graph)
+    assert 'universal-legend.figure' in app.callback_map
+    assert 'selected-users-store.data' in app.callback_map
+    selection_cb = app.callback_map['selected-users-store.data']
+    assert {'id': 'universal-legend', 'property': 'restyleData'} in selection_cb['inputs']
+    select = selection_cb['callback'].__wrapped__
     with patch('dash.ctx', MagicMock(triggered_id='universal-legend')):
-        selection, echo = select([roster[0]], None, roster)
-    assert selection == [roster[0]]
-    assert echo is dash.no_update  # No feedback loop on checkbox changes.
+        result = select([{'visible': ['legendonly']}, [0]], None, roster)
+    assert result == roster[1:]
+    with patch('dash.ctx', MagicMock(triggered_id='universal-legend')):
+        restored = select([{'visible': [True]}, [0]], None, result)
+    assert restored == roster
+    with patch('dash.ctx', MagicMock(triggered_id='universal-legend')):
+        only_first = select([{'visible': [True, 'legendonly']}, [0, 1]], None,
+                            roster)
+    assert only_first == [user for user in roster if user != roster[1]]
     with patch('dash.ctx', MagicMock(triggered_id='individual-chart')):
-        selection, echo = select([roster[0]], {'points': [{'x': roster[0]}]},
-                                 [roster[0]])
-    assert selection == echo == []  # Markers also synchronize the checkboxes.
+        after_point = select(None, {'points': [{'x': roster[0]}]}, roster)
+    assert after_point == roster[1:]
 
-    # Every dashboard panel must subscribe to the same selected-user store.
+    render = app.callback_map['universal-legend.figure']['callback'].__wrapped__
+    visible = render(roster[1:], 0, '/')
+    assert len(visible.data) == len(roster)
+    assert visible.data[0].visible == 'legendonly'
+    assert visible.data[1].visible is True
+    assert visible.data[0].marker.color == user_color(roster[0])
+    # The visible legend and selected-user store share the same selection.
     for output in ('individual-chart.figure', 'pending-chart.figure',
                    'rework-ratio-chart.figure', 'assigned-chart.figure',
                    'review-workload-chart.figure',
@@ -73,6 +83,7 @@ def test_team_legend_checkboxes_filter_every_dashboard_visual():
             {'id': 'selected-users-store', 'property': 'data'} in callback['inputs']
             for callback in callbacks), output
     manager.get_user_breakdown_df.assert_not_called()
+
 
 
 def test_saved_line_range_cache_and_single_day_selection(tmp_path):
