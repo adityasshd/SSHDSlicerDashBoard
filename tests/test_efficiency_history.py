@@ -81,13 +81,17 @@ def test_saved_approvals_render_on_first_load_even_if_workflow_scan_failed():
     data = report_fixture()
     data['approvals'] = {'rows': [{'date': '2026-10-06', 'member': 'Priya', 'stage': 'Leader', 'seconds': 3600}],
                          'complete': False}
-    chart, note = namespace['render_dashboard_trend'](data, None, 0, '/', {'error': 'ScanTimeout'})
+    # The retired dashboard trend is still an independently testable report.
+    report = prepare_approval_trend(data, approvals=data['approvals'])
+    chart = build_approval_trend_chart(report, True, primary_only=True,
+                                       primary_metric='completed')
     assert len(chart.data) == 1 and chart.data[0].name.replace('<br>', ' ').startswith('Completed video')
     # Saved approvals cannot stand in for missing completed-video captures.
     assert all(value is None for value in chart.data[0].y)
-    assert build_approval_trend_chart(prepare_approval_trend(data, approvals=data['approvals'])).data[1].y[-1] == 1
-    assert '0 of 30 source days recorded' in note
-    assert 'Asia/Kolkata' not in note
+    assert build_approval_trend_chart(report).data[1].y[-1] == 1
+    assert sum(row.get('completed_seconds') is not None for row in report['rows']) == 0
+    assert report['calendar_days'] == 30
+    assert 'dashboard-trend-store.data' not in namespace['app'].callback_map
 
 
 def test_daily_summary_survives_task_evidence_download_timeout():
