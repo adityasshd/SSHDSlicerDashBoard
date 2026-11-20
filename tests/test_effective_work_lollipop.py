@@ -53,7 +53,7 @@ def test_pending_unavailable_never_becomes_fabricated_zero():
     assert chart.layout.meta['effective_seconds'] is None
     assert len(chart.data) == 1
     assert chart.data[0].textposition == 'middle right'
-    assert chart.layout.title.subtitle is None
+    assert chart.layout.title.subtitle.text is None
     assert chart.layout.title.text == 'Completed duration and effective work'
 
 
