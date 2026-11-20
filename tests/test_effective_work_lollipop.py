@@ -31,6 +31,11 @@ def test_completed_and_pending_are_combined_once_per_person():
     assert by_name['Priya'].y[0] == pytest.approx(2)
     assert by_name['Priya effective work'].y[0] == pytest.approx(2.75)
     assert by_name['Priya effective work'].marker.symbol == 'diamond'
+    assert by_name['Priya effective work'].marker.color == by_name['Priya'].marker.color
+    dashed = next(shape for shape in chart.layout.shapes
+                  if shape.x0 == 'Priya' and shape.line.dash == 'dot')
+    assert dashed.line.color == by_name['Priya'].marker.color
+    assert by_name['Akash effective work'].marker.color == by_name['Akash'].marker.color
     assert by_name['Priya'].textposition == 'middle left'
     assert by_name['Priya effective work'].textposition == 'middle right'
     assert chart.layout.xaxis.range == pytest.approx([-.85, len(chart.layout.xaxis.categoryarray) - .15])
@@ -48,7 +53,8 @@ def test_pending_unavailable_never_becomes_fabricated_zero():
     assert chart.layout.meta['effective_seconds'] is None
     assert len(chart.data) == 1
     assert chart.data[0].textposition == 'middle right'
-    assert 'unavailable' in chart.layout.title.subtitle.text
+    assert chart.layout.title.subtitle is None
+    assert chart.layout.title.text == 'Completed duration and effective work'
 
 
 def test_pending_heatmap_row_column_and_grand_totals_are_not_double_counted():
