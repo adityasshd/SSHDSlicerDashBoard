@@ -24,14 +24,55 @@ def test_lead_lollipop_uses_existing_completion_and_pending_captures():
     for key in (completion, pending):
         assert 'workflow-sync-store' not in {
             item['id'] for item in callbacks[key]['inputs']}
-    selection = callbacks['selected-users-store.data']
+    selection = next(value for key, value in callbacks.items()
+                     if 'selected-users-store.data' in key)
     assert {item['id'] for item in selection['inputs']} == {
         'universal-legend', 'individual-chart'}
+    assert {'id': 'universal-legend', 'property': 'value'} in selection['inputs']
     from tests.test_daily_report_page import components
     ids = [getattr(node, 'id', None) for node in components(namespace['app'].layout)]
     assert ids.count('individual-chart') == ids.count('universal-legend') == 1
     assert 'approval-trend-chart' not in ids
     manager.get_dashboard_trend_data.assert_not_called()
+
+
+
+def test_team_legend_checkboxes_filter_every_dashboard_visual():
+    from tests.test_daily_report_page import components
+    from unittest.mock import patch
+    namespace, manager = application_namespace()
+    app = namespace['app']
+    roster = namespace['available_users']
+    assert len(roster) >= 2
+    options = next(node for node in components(app.layout)
+                   if getattr(node, 'id', None) == 'universal-legend')
+    assert isinstance(options, dash.dcc.Checklist)
+    assert options.value == roster
+    assert [option['value'] for option in options.options] == roster
+    selected_callback = next(value for key, value in app.callback_map.items()
+                             if 'selected-users-store.data' in key)
+    assert {'id': 'universal-legend', 'property': 'value'} in selected_callback['inputs']
+    select = selected_callback['callback'].__wrapped__
+    with patch('dash.ctx', MagicMock(triggered_id='universal-legend')):
+        selection, echo = select([roster[0]], None, roster)
+    assert selection == [roster[0]]
+    assert echo is dash.no_update  # No feedback loop on checkbox changes.
+    with patch('dash.ctx', MagicMock(triggered_id='individual-chart')):
+        selection, echo = select([roster[0]], {'points': [{'x': roster[0]}]},
+                                 [roster[0]])
+    assert selection == echo == []  # Markers also synchronize the checkboxes.
+
+    # Every dashboard panel must subscribe to the same selected-user store.
+    for output in ('individual-chart.figure', 'pending-chart.figure',
+                   'rework-ratio-chart.figure', 'assigned-chart.figure',
+                   'review-workload-chart.figure',
+                   'today-submissions-lollipop-chart.figure',
+                   'return-reasons-chart.figure'):
+        callbacks = [item for key, item in app.callback_map.items() if output in key]
+        assert callbacks and any(
+            {'id': 'selected-users-store', 'property': 'data'} in callback['inputs']
+            for callback in callbacks), output
+    manager.get_user_breakdown_df.assert_not_called()
 
 
 def test_saved_line_range_cache_and_single_day_selection(tmp_path):
