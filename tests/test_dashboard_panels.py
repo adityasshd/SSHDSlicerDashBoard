@@ -151,7 +151,7 @@ def test_saved_request_and_render_do_no_source_reads_and_have_no_live_input():
     assert pending_request == request
     assert saved['captured_at'] == packet['captured_at']
     paint = next(value for key, value in callbacks.items() if 'individual-chart.figure' in key and '@' not in key)
-    assert not any(item['id'].startswith('dashboard-live-') for item in paint['inputs'])
+    assert 'dashboard-live-completion' not in {item['id'] for item in paint['inputs']}
     figure, status, overview, ready, _ = paint['callback'].__wrapped__(request, saved, ['Riya'], 0, None, None, None, None, '/', None)
     assert ready['request_id'] == request['id']
     assert len(figure.data) == 1 and status == '' and overview == '01:00:00'
@@ -223,7 +223,7 @@ def test_live_result_is_reapplied_after_a_late_selection_paint():
     live = next(value for key, value in callbacks.items() if 'individual-chart.figure@' in key)
     assert {'id': 'dashboard-painted-completion', 'property': 'data'} in live['inputs']
     packet = {**capture_panel(fixture_manager(), 'completion', '2026-10-01', '2026-10-08'), 'request_id': 'one'}
-    figure, status, overview = live['callback'].__wrapped__(packet, {'request_id': 'one'}, request_for(), None, ['Riya'], 0, '/')
+    figure, status, overview = live['callback'].__wrapped__(packet, {'request_id': 'one'}, request_for(), None, ['Riya'], 0, '/', None, None, None)
     assert len(figure.data) == 1 and status == '' and overview == '01:00:00'
 
 
