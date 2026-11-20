@@ -42,7 +42,7 @@ def test_frozen_period_never_starts_capture_even_on_refresh():
                  if "dashboard-ready-completion.data" in key)["callback"].__wrapped__
     # Missing snapshot gets an explicit unavailable state, never a fresh capture.
     _, status, _, ready, _ = paint(request, {"available": False, "request_id": "frozen"},
-                                None, 0, None, "/", None)
+                                None, 0, None, None, None, None, "/", None)
     assert ready is dash.no_update
     assert "No verified snapshot" in status
     manager.get_user_breakdown_df.assert_not_called()
