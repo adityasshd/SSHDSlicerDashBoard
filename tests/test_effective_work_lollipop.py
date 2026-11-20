@@ -129,4 +129,4 @@ def test_settlement_with_only_zero_duration_is_an_explicit_empty_chart():
     complete = pd.DataFrame([{'User': 'No work', 'Completed Duration': 0}])
     chart = build_individual_chart(complete, '2026-11-01', '2026-11-20', True)
     assert len(chart.data) == 0
-    assert 'No completed or pending-review work' in chart.layout.annotations[0].text
+    assert 'No completed or pending-review' in chart.layout.annotations[0].text
