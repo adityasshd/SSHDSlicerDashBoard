@@ -141,7 +141,7 @@ def build_return_reasons_chart(
         else:
             user = raw_user or 'Unknown'
 
-        if selected_users and user not in selected_users:
+        if selected_users is not None and user not in selected_users:
             continue
 
         filtered_records.append((user, r.get('reason') or ''))
