@@ -191,7 +191,9 @@ def test_dashboard_chart_wired_to_dated_evidence_and_user_filters():
             '/', 0, 0, {'id': 'fresh-settlement'})
         saved.assert_called_once_with(namespace['dm'])
         chart = render['callback'].__wrapped__(evidence, ['A'], 0, '/')
-    assert list(chart.data[0].x) == ['A']
+    assert list(chart.data[0].x) == [0]
+    assert list(chart.layout.xaxis.ticktext) == ['A']
+    assert chart.data[0].customdata[0][0] == 'A'
     assert chart.layout.meta['submitted_seconds'] == pytest.approx(12600)
 
 
