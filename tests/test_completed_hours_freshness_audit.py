@@ -43,3 +43,27 @@ def test_missing_panel_cannot_be_reported_up_to_date():
     metadata = {"completion_panels": [], "saved_snapshot_updated_at": None}
     assert audit.compare({"display_date": "2026-11-20", "sort_at": "2026-11-20T06:40:26Z"},
                          metadata)["assessment"] == "no_saved_completion_panel"
+
+
+def test_current_unsettled_period_ending_before_today_is_detected():
+    audit = module()
+    current = {"start_date": "2026-11-01", "end_date": "2026-11-17",
+               "settled": False, "is_current": True}
+    result = audit.settlement_scope_health(current, "2026-11-20")
+    assert result["state"] == "open_settlement_ends_before_today"
+    assert result["missing_calendar_days"] == 3
+    assert result["configured_end_date"] == "2026-11-17"
+    assert audit.settlement_scope_health(
+        {**current, "end_date": "2026-11-20"}, "2026-11-20")["state"] == "date_window_covers_today"
+
+
+def test_invalid_or_closed_settlement_is_not_autocorrected():
+    audit = module()
+    assert audit.settlement_scope_health(None, "2026-11-20")["state"] == "no_current_settlement"
+    assert audit.settlement_scope_health(
+        {"start_date": "2026-11-21", "end_date": "2026-11-17", "settled": False},
+        "2026-11-20")["state"] == "invalid_settlement_date_order"
+    result = audit.settlement_scope_health(
+        {"start_date": "2026-11-01", "end_date": "2026-11-17", "settled": True},
+        "2026-11-20")
+    assert result["state"] == "date_window_not_current"
