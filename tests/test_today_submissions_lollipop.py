@@ -4,6 +4,7 @@ The plot displays video duration from a dated Daily submission report, not
 the count-only interim chart, whole-batch duration or time spent working.
 """
 import pytest
+from unittest.mock import patch
 
 from slicing_dashboard.reporting.daily_output import (
     submitted_video_output, submission_rework_counts,
@@ -170,6 +171,29 @@ def test_dashboard_chart_wired_to_dated_evidence_and_user_filters():
     render = callbacks['today-submissions-lollipop-chart.figure']
     assert {'id': 'selected-users-store', 'property': 'data'} in render['inputs']
     assert {'id': 'dashboard-today-submissions-evidence', 'property': 'data'} in render['inputs']
+
+    # Regression: the old trend store was removed when the top chart changed.
+    # Depending on it left the submitted-video plot stuck in its initial state.
+    loader = callbacks['dashboard-today-submissions-evidence.data']
+    input_ids = {entry['id'] for entry in loader['inputs']}
+    assert 'dashboard-trend-store' not in input_ids
+    assert 'dashboard-panel-request' in input_ids
+    from tests.test_daily_report_page import components
+    mounted = {getattr(node, 'id', None)
+               for node in components(namespace['app'].layout)}
+    assert input_ids <= mounted
+
+    with patch('slicing_dashboard.pages.today_submissions.today_iso',
+               return_value='2026-11-17'), \\
+         patch('slicing_dashboard.pages.today_submissions.saved_today_submission_day',
+               return_value=DAY) as saved:
+        evidence = loader['callback'].__wrapped__(
+            '/', 0, 0, {'id': 'fresh-settlement'})
+        saved.assert_called_once_with(namespace['dm'])
+        chart = render['callback'].__wrapped__(evidence, ['A'], 0, '/')
+    assert list(chart.data[0].x) == ['A']
+    assert chart.layout.meta['submitted_seconds'] == pytest.approx(12600)
+
 
 
 
