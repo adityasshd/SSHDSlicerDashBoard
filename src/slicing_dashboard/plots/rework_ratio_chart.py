@@ -321,9 +321,7 @@ def _build_verified_hours(frame, is_dark, completion_state, selected, completed_
         "<b>%{customdata[0]}</b><br>%{customdata[1]}<br>%{customdata[2]}"
         "<br>Observed lifetime batch returns · Unknown if unlinked<extra></extra>",
         "Rework intensity · video hours", is_dark,
-        scope + " · observed lifetime return events"
-        + (" · partial sources; unlinked duration is Unknown" if warnings else ""),
-        show_counts=False, total_column=True,
+        subtitle='', show_counts=False, total_column=True,
     )
     metadata = dict(figure.layout.meta or {})
     metadata.update({
