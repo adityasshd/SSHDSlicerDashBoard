@@ -81,7 +81,7 @@ def test_line_is_submitted_video_hours_and_lollipops_are_rework_hours(dark):
     assert figure.layout.meta['rework_is_subset'] is True
     assert figure.layout.meta['screen_time_included'] is False
     assert 'HH:MM' in figure.layout.yaxis.title.text
-    assert figure.layout.title.subtitle is None
+    assert figure.layout.title.subtitle.text is None
     assert figure.layout.title.text.startswith("Today's submitted video duration")
     assert figure.layout.meta['partial'] is True
     figure.to_json()
@@ -270,7 +270,7 @@ def test_unverified_efficiency_stock_shows_only_a_labeled_line():
     assert fig.layout.meta['classification_available'] is False
     assert fig.layout.meta['old_rework_seconds'] is None
     assert fig.layout.meta['same_day_rework_seconds'] is None
-    assert fig.layout.title.subtitle is None
+    assert fig.layout.title.subtitle.text is None
     assert fig.layout.title.text.startswith('Submitted-status video duration')
     assert 'Submitted-status video duration' in fig.layout.title.text
     filtered = select_submitted_status_snapshot(evidence, ['Priya'])
