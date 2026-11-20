@@ -300,31 +300,35 @@ def _build_verified_hours(frame, is_dark, completion_state, selected, completed_
     hours, labels, hover = [], [], []
     for user in users:
         values = by_user[user]
-        hours.append(values)
-        labels.append([format_seconds(value * 3600, compact=True) for value in values])
+        row_total = sum(values)
+        hours.append([*values, row_total])
+        labels.append([format_seconds(value * 3600, compact=True) for value in [*values, row_total]])
         hover.append([[escape(str(user)), escape(tier), format_seconds(value * 3600)]
-                      for tier, value in zip(tiers, values)])
+                      for tier, value in zip(tiers, values)] +
+                     [[escape(str(user)), 'Total', format_seconds(row_total * 3600)]])
     totals = [sum(row[column] for row in hours) for column in range(len(tiers))]
-    hours.append(totals)
-    labels.append([format_seconds(value * 3600, compact=True) for value in totals])
+    grand_total = sum(totals)
+    hours.append([*totals, grand_total])
+    labels.append([format_seconds(value * 3600, compact=True) for value in [*totals, grand_total]])
     hover.append([["Total", escape(tier), format_seconds(value * 3600)]
-                  for tier, value in zip(tiers, totals)])
+                  for tier, value in zip(tiers, totals)] +
+                 [["Total", 'Total', format_seconds(grand_total * 3600)]])
     users.append("<b>Total</b>")
     scope = ("Completed paid video · selected date range" if completion_state == "Completed"
              else "Current pending Leader / Auditor / Admin review")
     figure = intensity_chart(
-        users, tiers, {"Hours": (hours, labels)}, hover,
+        users, [*tiers, '<b>Total</b>'], {"Hours": (hours, labels)}, hover,
         "<b>%{customdata[0]}</b><br>%{customdata[1]}<br>%{customdata[2]}"
         "<br>Observed lifetime batch returns · Unknown if unlinked<extra></extra>",
         "Rework intensity · video hours", is_dark,
         scope + " · observed lifetime return events"
         + (" · partial sources; unlinked duration is Unknown" if warnings else ""),
-        show_counts=False,
+        show_counts=False, total_column=True,
     )
     metadata = dict(figure.layout.meta or {})
     metadata.update({
         "value_unit": "Hours",
-        "column_units": ["hours"] * len(tiers),
+        "column_units": ["hours"] * (len(tiers) + 1),
         "metric": "verified_video_duration_seconds_by_observed_lifetime_return_tier",
         "verified_total_seconds": sum(totals) * 3600,
         "tier_duration_seconds": [value * 3600 for value in totals],
