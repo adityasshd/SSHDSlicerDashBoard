@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import argparse
 import base64
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 import json
 import os
 from pathlib import Path
@@ -88,6 +89,33 @@ def compare(latest_source, report):
     return result
 
 
+def settlement_scope_health(current, today):
+    """Check whether the current unsettled collector window reaches today."""
+    if not isinstance(current, dict):
+        return {"state": "no_current_settlement"}
+    start = current.get("start_date")
+    end = current.get("end_date")
+    if not isinstance(start, str) or not isinstance(end, str):
+        return {"state": "invalid_settlement_dates"}
+    try:
+        start_day = date.fromisoformat(start)
+        end_day = date.fromisoformat(end)
+        now_day = date.fromisoformat(today)
+    except ValueError:
+        return {"state": "invalid_settlement_dates"}
+    if end_day < start_day:
+        return {"state": "invalid_settlement_date_order"}
+    result = {"start_date": start, "configured_end_date": end,
+              "requested_current_day": today, "settled": current.get("settled")}
+    if current.get("settled") is False and end_day < now_day:
+        result.update(state="open_settlement_ends_before_today",
+                      missing_calendar_days=(now_day - end_day).days)
+    else:
+        result.update(state="date_window_covers_today"
+                      if start_day <= now_day <= end_day else "date_window_not_current")
+    return result
+
+
 def run():
     try:
         from dotenv import load_dotenv
@@ -109,7 +137,12 @@ def run():
             {"kind": "efficiency-capture"},
             {"_id": 0, "display_date": 1, "sort_at": 1},
             sort=[("display_date", -1)])
+        current = db["settlement_periods"].find_one(
+            {"is_current": True},
+            {"_id": 0, "start_date": 1, "end_date": 1, "settled": 1})
         result = compare(latest, metadata)
+        today = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+        result["settlement_scope"] = settlement_scope_health(current, today)
         print(json.dumps(result, sort_keys=True, indent=2))
     return 0
 
