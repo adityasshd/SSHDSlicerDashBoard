@@ -200,7 +200,7 @@ def test_completed_hours_still_render_when_batch_tier_capture_is_missing():
     assert figure.layout.meta['unknown_duration_seconds'] == pytest.approx(69 * 3600)
     assert figure.layout.meta['tier_duration_seconds'] == pytest.approx([0, 0, 0, 0, 69 * 3600])
     assert list(figure.data[0].x) == ['No Rework', '1 Rework', '2 Reworks',
-                                    '3+ Reworks', 'Unknown']
+                                    '3+ Reworks', 'Unknown', '<b>Total</b>']
     assert 'Completed paid video' in figure.layout.title.subtitle.text
     assert '69:00:00' in str(overview)
 
