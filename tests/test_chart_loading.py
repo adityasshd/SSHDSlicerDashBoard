@@ -9,40 +9,29 @@ from slicing_dashboard.db import DatabaseManager
 from tests.test_daily_report_page import application_namespace
 
 
-def test_chart_dependencies_exclude_workflow_capture_and_slow_selection_writer():
-    namespace, _ = application_namespace()
+def test_lead_lollipop_uses_existing_completion_and_pending_captures():
+    namespace, manager = application_namespace()
     callbacks = namespace['app'].callback_map
+    completion = next(key for key in callbacks
+                      if 'individual-chart.figure' in key and '@' not in key)
     pending = next(key for key in callbacks if 'pending-chart.figure' in key)
-    trend = next(key for key in callbacks if 'dashboard-trend-ready.data' in key)
-    assert 'workflow-notification-interval' not in {
-        entry['id'] for entry in callbacks['dashboard-trend-store.data']['inputs']}
-    for identity in (pending, trend):
-        callback = callbacks[identity]
-        assert 'workflow-sync-store' not in {item['id'] for item in callback['inputs']}
+    assert 'dashboard-trend-store.data' not in callbacks
+    assert not any('approval-trend-chart.figure' in key for key in callbacks)
+    capture_inputs = {item['id'] for item in callbacks[completion]['inputs']}
+    assert {'dashboard-panel-request', 'dashboard-saved-completion',
+            'dashboard-pending-request', 'dashboard-saved-pending',
+            'dashboard-live-pending'} <= capture_inputs
+    for key in (completion, pending):
+        assert 'workflow-sync-store' not in {
+            item['id'] for item in callbacks[key]['inputs']}
     selection = callbacks['selected-users-store.data']
-    assert {item['id'] for item in selection['inputs']} == {'universal-legend', 'individual-chart'}
-    assert not any('kpi-cards' in key and 'selected-users-store' in key for key in callbacks)
-
-
-def test_line_load_does_not_run_live_workflow_or_daily_scans():
-    namespace, manager = application_namespace()
-    manager.get_dashboard_trend_data.return_value = {'history': []}
-    with patch('dash.ctx', MagicMock(triggered_id='refresh-btn')):
-        result = namespace['load_dashboard_trend']('2026-10-06', 1, 1, '/')
-        assert result['history'] == [] and result['request_id'] and result['force_refresh']
-    manager.get_dashboard_trend_data.assert_called_once_with('2026-10-06', force_refresh=True)
-    manager.get_daily_report_data.assert_not_called()
-    manager.get_workflow_data.assert_not_called()
-
-
-def test_line_filter_passes_both_dates_to_the_saved_history_reader():
-    namespace, manager = application_namespace()
-    callback = namespace['app'].callback_map['dashboard-trend-store.data']
-    assert {'id': 'date-from', 'property': 'value'} in callback['inputs']
-    with patch('dash.ctx', MagicMock(triggered_id='date-from')):
-        namespace['load_dashboard_trend']('2026-10-06', 0, 0, '/', '2026-10-02')
-    manager.get_dashboard_trend_data.assert_called_once_with(
-        '2026-10-06', force_refresh=False, start_date='2026-10-02')
+    assert {item['id'] for item in selection['inputs']} == {
+        'universal-legend', 'individual-chart'}
+    from tests.test_daily_report_page import components
+    ids = [getattr(node, 'id', None) for node in components(namespace['app'].layout)]
+    assert ids.count('individual-chart') == ids.count('universal-legend') == 1
+    assert 'approval-trend-chart' not in ids
+    manager.get_dashboard_trend_data.assert_not_called()
 
 
 def test_saved_line_range_cache_and_single_day_selection(tmp_path):
