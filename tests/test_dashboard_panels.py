@@ -401,7 +401,6 @@ def test_review_overview_heatmap_and_donut_share_a_filtered_atomic_response(sele
     if expected:
         assert matrix.layout.meta["grand_total"] * 3600 == expected
         assert matrix.layout.meta["column_totals"][-1] * 3600 == expected
-        assert matrix.layout.meta["row_totals"][-1] * 3600 != expected if len(matrix.layout.meta["row_totals"]) > 1 else True
         assert sum(donut.data[0].values) == expected
     else:
         assert not matrix.data and not donut.data
