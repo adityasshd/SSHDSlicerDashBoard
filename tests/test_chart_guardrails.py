@@ -201,8 +201,8 @@ def test_visible_stack_totals_are_outside_and_axis_has_ten_percent_headroom(dark
     frame = pd.DataFrame({'User': ['A', 'A', 'B'], 'Stage': ['Pending Leader', 'Pending Admin', 'Pending Leader'],
                           'Duration': [3600, 7200, 1800], 'Count': [1, 2, 1]})
     pending = build_pending_chart(frame, dark)
-    assert _heatmap_matrix(pending) == [[1, 0, 2], [.5, 0, 0]]
-    assert pending.layout.meta['column_maxima'] == [1, 0, 2]
+    assert _heatmap_matrix(pending) == [[1, 0, 2, 3], [.5, 0, 0, .5]]
+    assert pending.layout.meta['column_maxima'] == [1, 0, 2, 3]
     assert pending.layout.yaxis.autorange == 'reversed'
     assigned = build_assigned_chart(frame.assign(Stage=['New Assigned', 'Rework Assigned', 'New Assigned']), dark)
     labels = {item.y: item for item in assigned.layout.annotations if item.name == 'bar-hour-total'}
@@ -267,7 +267,7 @@ def test_pending_matrix_combines_hours_and_counts_without_changing_the_scale(dar
     figure = build_pending_chart(frame, dark)
     trace = figure.data[0]
     assert list(trace.y[:-1]) == ['A', 'B']
-    assert _heatmap_matrix(figure) == [[1.5, 0, 0], [0, 0, 0]]
+    assert _heatmap_matrix(figure) == [[1.5, 0, 0, 1.5], [0, 0, 0, 0]]
     assert list(trace.customdata[0][0][2:-1]) == ['01:30:00', 3, 'first, second']
     assert trace.customdata[1][2][3] == 4
     assert figure.layout.meta['captured_at'] == frame.attrs['captured_at']
@@ -275,7 +275,10 @@ def test_pending_matrix_combines_hours_and_counts_without_changing_the_scale(dar
     combined = build_pending_chart(frame, dark, show_counts=True)
     assert _heatmap_matrix(combined) == _heatmap_matrix(figure)
     assert combined.layout.meta['column_maxima'] == figure.layout.meta['column_maxima']
-    assert [item.text for item in combined.layout.annotations] == ['01:30 / 3', '00:00 / 0', '00:00 / 0', '00:00 / 0', '00:00 / 0', '00:00 / 4', '01:30 / 3', '00:00 / 0', '00:00 / 4']
+    assert [item.text for item in combined.layout.annotations] == [
+        '01:30 / 3', '00:00 / 0', '00:00 / 0', '01:30 / 3',
+        '00:00 / 0', '00:00 / 0', '00:00 / 4', '00:00 / 4',
+        '01:30 / 3', '00:00 / 0', '00:00 / 4', '01:30 / 7']
     assert trace.hoverlabel.bgcolor[0][0] != trace.hoverlabel.bgcolor[0][1]
     pd.testing.assert_frame_equal(frame, original)
 
