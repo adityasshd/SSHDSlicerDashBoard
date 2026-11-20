@@ -270,7 +270,6 @@ app.layout = html.Div(
                 # ── Stores & Intervals ───────────────────────────────
                 dcc.Store(id="selected-users-store", data=available_users),
                 *panel_stores(),
-                *trend_stores(),
                 dcc.Store(id="current-period-range", data={"start": default_start, "end": default_end}),
                 dcc.Store(id="server-status-store", data=dm.get_server_status()),
                 dcc.Interval(
