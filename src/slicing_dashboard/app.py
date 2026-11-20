@@ -23,6 +23,7 @@ from slicing_dashboard.plots import (
     USER_COLORS,
     format_seconds,
     empty_fig,
+    build_legend_figure,
     build_rework_ratio_chart,
     build_individual_chart,
     build_pending_chart,
@@ -31,7 +32,7 @@ from slicing_dashboard.plots import (
     build_return_reasons_chart,
     create_table,
 )
-from slicing_dashboard.plots.theme import CHART_HEIGHT, user_color
+from slicing_dashboard.plots.theme import CHART_HEIGHT
 from slicing_dashboard.plots.tables import register_duration_table_callbacks
 from slicing_dashboard.plots.guardrails import state_figure
 from slicing_dashboard.management.ui import layout_settlement_management, layout_user_mapping, register_management_callbacks
@@ -248,25 +249,12 @@ app.layout = html.Div(
                             className="report-comparison-chart",
                             style={"height": "420px", "width": "100%"},
                         ), width=12, lg=9),
-                        dbc.Col(html.Div([
-                            html.H3('Team members', className='dashboard-team-filter-heading'),
-                            dcc.Checklist(
-                                id='universal-legend',
-                                options=[{
-                                    'label': html.Span([
-                                        html.Span(className='dashboard-team-dot',
-                                                  style={'backgroundColor': user_color(user)}),
-                                        html.Span(user, className='dashboard-team-name'),
-                                    ], className='dashboard-team-option'),
-                                    'value': user,
-                                } for user in available_users],
-                                value=list(available_users),
-                                inputClassName='dashboard-user-checkbox',
-                                labelClassName='dashboard-user-label',
-                                className='dashboard-user-checklist',
-                            ),
-                        ], className='dashboard-team-filter', style={'height': '420px'}),
-                        width=12, lg=3),
+                        dbc.Col(dcc.Graph(
+                            id="universal-legend", figure=_initial_fig,
+                            config=_graph_cfg, responsive=True,
+                            className="chart-compact",
+                            style={"height": "420px", "width": "100%"},
+                        ), width=12, lg=3),
                     ], className="dashboard-completion-lead"),
                 ], className="glass-panel report-section dashboard-lead"),
 
@@ -972,29 +960,35 @@ def _refresh_scope(callback):
 
 @app.callback(
     Output('selected-users-store', 'data'),
-    Output('universal-legend', 'value'),
-    Input('universal-legend', 'value'),
-    Input('individual-chart', 'clickData'),
-    State('selected-users-store', 'data'),
-    prevent_initial_call=True,
+    Input('universal-legend', 'restyleData'), Input('individual-chart', 'clickData'),
+    State('selected-users-store', 'data'), prevent_initial_call=True,
 )
-def select_dashboard_users(checked_users, click_data, stored_users):
-    """Make the visible team selector the authoritative cross-dashboard filter.
+def select_dashboard_users(restyle_data, click_data, stored_users):
+    """Interpret Plotly legend toggles as shared dashboard filters.
 
-    Plotly's virtual legend uses restyleData/legendonly, which is a display
-    setting rather than a dependable user-selection event. Real checkbox
-    values are explicit, and clicking a completed marker mirrors the selection
-    back into those same checkboxes.
+    The legend has one trace for each member in available_users, in that
+    exact order. Plotly emits both single-item and multi-item restyle changes
+    (e.g. on double-click). Treat the emitted visible values as authoritative.
     """
     selection = list(available_users if stored_users is None else stored_users)
     trigger = dash.ctx.triggered_id
-    if trigger == 'universal-legend':
-        requested = (set(checked_users) if isinstance(checked_users, list)
-                     else set(selection))
-        chosen = [user for user in available_users if user in requested]
-        return (chosen, dash.no_update) if chosen != selection else (
-            dash.no_update, dash.no_update)
-    if trigger == 'individual-chart' and click_data and click_data.get('points'):
+    if trigger == 'universal-legend' and restyle_data:
+        updates, indices = restyle_data
+        changed = updates.get('visible') if isinstance(updates, dict) else None
+        if changed is not None:
+            if not isinstance(changed, list):
+                changed = [changed] * len(indices)
+            for index, visibility in zip(indices, changed):
+                if not isinstance(index, int) or not 0 <= index < len(available_users):
+                    continue
+                user = available_users[index]
+                if visibility in ('legendonly', False):
+                    if user in selection:
+                        selection.remove(user)
+                elif visibility is True:
+                    if user not in selection:
+                        selection.append(user)
+    elif trigger == 'individual-chart' and click_data and click_data.get('points'):
         point = click_data['points'][0]
         user = point.get('x') or point.get('label')
         if user in available_users:
@@ -1002,9 +996,8 @@ def select_dashboard_users(checked_users, click_data, stored_users):
                 selection.remove(user)
             else:
                 selection.append(user)
-            selection = [member for member in available_users if member in selection]
-            return selection, selection
-    return dash.no_update, dash.no_update
+    selection = [user for user in available_users if user in selection]
+    return selection if selection != stored_users else dash.no_update
 
 
 def update_pending_review(clicks, pathname, notification_intervals, selected_users, theme_clicks,
@@ -1200,6 +1193,23 @@ def heartbeat_check(n_intervals):
     badge = _build_status_badge(status)
     banner = _build_status_banner(status)
     return status, badge, banner
+
+
+
+@app.callback(
+    Output("universal-legend", "figure"),
+    Input("selected-users-store", "data"), Input("theme-toggle", "n_clicks"),
+    Input("report-location", "pathname"),
+)
+def render_dashboard_legend(selected_users, theme_clicks, pathname):
+    """Reflect the shared selection in the original interactive Plotly legend."""
+    if pathname not in (None, "/", "/dashboard"):
+        raise dash.exceptions.PreventUpdate
+    return build_legend_figure(
+        available_users,
+        available_users if selected_users is None else selected_users,
+        theme_clicks is None or theme_clicks % 2 == 0,
+    )
 
 
 register_dashboard_panels(app, dm, available_users)
