@@ -37,7 +37,7 @@ The `today-submissions-lollipop` chart uses **daily, dated, verified video submi
 **Live evidence:**
 
 - `daily_work_reports`: **9 rows**, dated **Oct 5–Oct 13, 2026**; **none** dated Nov 20.
-- `workflow_records` with `kind=efficiency-capture`: **142 rows**, latest `display_date=2026-11-19`; **0** for Nov 20 (and 1 for Nov 19).
+- `workflow_records` with `kind=efficiency-capture`: **initial check** found 142 rows, latest `display_date=2026-11-19`, and 0 for Nov 20. **Later on Nov 20 at 06:40 UTC, a new Nov 20 capture arrived.** The initial missing-today statement is no longer current. This still does not restore the separate verified daily submission reports.
 - `data-health` saved status: daily source failed with `DailyCaptureFailure`, `failure_reason=task_overview_forbidden`; `last_success_at` for daily source was Oct 8 and its most recent saved attempt was Nov 17.
 - Saved refresh jobs recorded `DailyCaptureFailed:today:task_overview_forbidden` and `DailyCaptureFailed:today:task_inventory`.
 - Upstream API contract in `docs/today-submissions-work-hours-contract.md` confirms `POST /api/tasks/overview` returns 403 for the current collector, while it is the known endpoint containing `slice_submitted_at`. `GET /api/slice/tasks` supplies current status and video duration but not verified submitted-at timestamps. Thus return notices and current statuses cannot produce an honest New/Old/Same-day payout split.
@@ -75,3 +75,26 @@ If using the provided standalone script rather than a checked-in copy, replace `
 - [ ] Today's dated submitted-duration ingestion: **not restored**; requires approved upstream task inventory access and a functioning collector.
 
 **Safety:** Do not use free-tier remaining capacity to copy entire archives or historical collections inside the same MongoDB cluster.
+
+## 4. Completed Hours not updating — November 20 follow-up
+
+**Production:** Office Vercel project \`sshd-slicer-dash-board\`, production deployment of \`main\` at \`1c49da84\`. \`runtime.viewer_mode()\` is true in Vercel. Browser callbacks intentionally **never collect upstream data**; even the Refresh button reloads only the last MongoDB \`dashboard_snapshot\`. Auto polling is disabled to control hosting costs. An independently running external collector must publish refreshed panels.
+
+**Two separate completion paths:**
+
+- The *historical completed-hours trend* is built from \`workflow_records\` daily \`efficiency-capture\` source-status records. A new Nov 20 record was saved at approximately **2026-11-20 06:40:26 UTC**. These captures use date-filtered status metrics; they must not be misrepresented as admin approval timestamps.
+- The Dashboard *Completed Hours KPI* and *Completed Duration* plot read a separately captured, exact-range **completion panel** in \`dashboard_snapshot.dashboard_panels\`. This panel is built by \`capture_panel(manager, 'completion', start, end)\` and receives source \`get_user_breakdown_df\`, not directly from the dated \`efficiency-capture\` record. Recording a new efficiency day does **not** automatically rebuild that panel.
+
+**Live evidence:** The compressed MongoDB snapshot document \`latest-compressed-v1\` had an updated timestamp of **2026-11-20 12:11:11** (collector/server-local format). Its **individual completion packet** time was not yet known from Atlas metadata alone; the binary compressed snapshot must be decoded before claiming the KPI itself is current. The saved \`data-health\` status and \`refresh-job\` records were still dated **Nov 17**: last successful \`efficiency\`, \`completion\`, and \`chart_panels\` health phases at that time. Thus normal scheduled collector health is stale even though direct efficiency history captures and snapshot writes have occurred later.
+
+Vercel logs also report occasional **30-second \`/flask\` timeouts**. These may interrupt responses but are *not* established as the cause of a particular missing Completed Hours update.
+
+**Next exact diagnosis:** Run the safe script added in this PR on the configured collector/development machine:
+
+\`\`\`powershell
+python scripts\audit_completed_hours_freshness.py
+\`\`\`
+
+It reads the existing compressed snapshot and the latest dated efficiency capture. It prints only panel timestamps, availability, anonymized panel-key prefixes, counts and their freshness gap. It does not write to MongoDB, scrape tasks, or show per-user durations. If the latest saved completion panel predates the latest source capture, fix the external collector's **completion/chart_panels publication**. If the packet is fresh but the browser remains stale, use the Vercel Refresh button once to reload the MongoDB snapshot, then investigate viewer cache/request timeouts. **Do not add automatic Vercel upstream scraping or cost-heavy polling to hide the collector fault.**
+
+**Safety:** No completion-hour totals should be inferred from \`batch_returns\`, original batch duration, raw status history, or work-session time. First verify matching user mappings and exact report period.
