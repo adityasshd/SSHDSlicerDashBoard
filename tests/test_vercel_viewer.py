@@ -63,10 +63,11 @@ def test_viewer_has_no_ticking_intervals_or_live_panel_reads(viewer):
         'auto-refresh-interval', 'heartbeat-interval', 'workflow-notification-interval'}
     assert all(node.disabled for node in intervals)
     callbacks = namespace['app'].callback_map
-    for store in ('dashboard-live-completion', 'dashboard-trend-live'):
-        callback = next(value for key, value in callbacks.items() if key == f'{store}.data')
-        with pytest.raises(dash.exceptions.PreventUpdate):
-            callback['callback'].__wrapped__({}, {})
+    # The removed trend no longer has a live polling callback.
+    assert 'dashboard-trend-live.data' not in callbacks
+    callback = callbacks['dashboard-live-completion.data']
+    with pytest.raises(dash.exceptions.PreventUpdate):
+        callback['callback'].__wrapped__({}, {})
     manager.get_efficiency_history.assert_not_called()
     manager.get_user_breakdown_df.assert_not_called()
 
