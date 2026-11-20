@@ -40,7 +40,6 @@ def build_individual_chart(breakdown_df, start_date: str, end_date: str, is_dark
         return state_figure('No completed or pending-review work available for this selection.', is_dark)
 
     figure = go.Figure()
-    marker_color = '#c2fd75' if is_dark else '#0d9488'
     for user in users:
         seconds = float(completed.get(user, 0))
         queue_seconds = float(pending.get(user, 0)) if pending_available else 0.0
@@ -51,7 +50,7 @@ def build_individual_chart(breakdown_df, start_date: str, end_date: str, is_dark
                          line={'color': color, 'width': 3}, layer='below')
         if pending_available and queue_seconds > 0:
             figure.add_shape(type='line', x0=user, x1=user, y0=hours, y1=effective_hours,
-                             line={'color': marker_color, 'width': 2, 'dash': 'dot'}, layer='below')
+                             line={'color': color, 'width': 2, 'dash': 'dot'}, layer='below')
         figure.add_trace(go.Scatter(
             name=user, x=[user], y=[hours], mode='markers+text',
             marker={'color': color, 'size': 13, 'symbol': 'circle',
@@ -71,7 +70,7 @@ def build_individual_chart(breakdown_df, start_date: str, end_date: str, is_dark
         if pending_available and queue_seconds > 0:
             figure.add_trace(go.Scatter(
                 name=user + ' effective work', x=[user], y=[effective_hours],
-                mode='markers+text', marker={'color': marker_color, 'size': 13,
+                mode='markers+text', marker={'color': color, 'size': 13,
                                               'symbol': 'diamond',
                                               'line': {'color': theme['bg_color'], 'width': 1}},
                 text=[hour_total_label(effective_hours)], textposition='middle right',
@@ -83,16 +82,12 @@ def build_individual_chart(breakdown_df, start_date: str, end_date: str, is_dark
                                '<br>Combined effective work: %{customdata[2]}<extra></extra>'),
                 showlegend=False,
             ))
-    subtitle = ('Circle: completed · Diamond: completed + current pending review ·'
-                ' pending inventory is live, not period-dated' if pending_available else
-                'Completed only · current pending-review evidence unavailable')
     figure.update_layout(
-        title={'text': 'Completed duration and effective work',
-               'subtitle': {'text': subtitle, 'font': {'size': 10}}},
+        title={'text': 'Completed duration and effective work'},
         template=theme['template'],
         paper_bgcolor=theme['bg_color'], plot_bgcolor=theme['bg_color'],
         font={'family': 'Inter, sans-serif', 'size': 12, 'color': theme['font_color']},
-        height=420, margin={'l': 55, 'r': 24, 't': 85, 'b': 48},
+        height=420, margin={'l': 55, 'r': 24, 't': 56, 'b': 48},
         xaxis={'title': '', 'showgrid': False,
                'categoryorder': 'array', 'categoryarray': users,
                'range': [-0.85, len(users) - 0.15]},
