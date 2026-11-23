@@ -70,7 +70,7 @@ def chart_template(is_dark: bool) -> go.layout.Template:
     template = pio.templates["plotly_dark" if is_dark else "plotly_white"].to_plotly_json()
     template["data"] = {kind: values for kind, values in template.get("data", {}).items()
                         if kind in ("bar", "scatter")}
-    grid = 'rgba(148,163,184,.16)' if is_dark else '#edf0f5'
+    grid = 'rgba(148,163,184,.16)' if is_dark else '#d5e2d8'
     template['layout'].update(
         colorway=(['#c2fd75', '#165a50', '#a78bfa', '#43b8c6', '#7b91af'] if is_dark else
                   ['#165a50', '#78b844', '#8b5cf6', '#0891b2', '#668376']),
