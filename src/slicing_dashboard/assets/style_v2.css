@@ -580,6 +580,7 @@ body {
 .dashboard-completion-lead { --bs-gutter-x: 16px; --bs-gutter-y: 12px; }
 @media (min-width: 992px), print {
     .dashboard-overview-row { grid-template-columns: minmax(0, 1fr) clamp(175px, 17%, 260px); }
+    .dashboard-overview-row #kpi-cards { display: grid; }
     .dashboard-overview-row > .chart-frame { min-height: 0; }
     .dashboard-overview-row .chart-viewport { position: absolute; inset: 6px; width: auto; }
     .dashboard-overview-row #universal-legend { height: 100% !important; min-height: 0; }

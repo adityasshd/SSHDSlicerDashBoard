@@ -28,11 +28,12 @@ def check_layout(page):
             page.get_by_role('radio', name=name, exact=True).check()
             expect(page.locator('#universal-legend')).to_be_visible()
             expect(page.locator('#review-workload-chart')).to_have_count(0)
-            overview = page.locator('#kpi-overview').bounding_box()
-            legend = page.locator('.dashboard-overview-row > .chart-frame').bounding_box()
-            assert legend['x'] >= overview['x'] + overview['width'] - 1
-            assert abs(overview['height'] - legend['height']) <= 1
-            assert abs(overview['y'] - legend['y']) <= 1
+            page.wait_for_function("""() => {
+                const overview = document.querySelector('#kpi-overview').getBoundingClientRect();
+                const legend = document.querySelector('.dashboard-overview-row > .chart-frame').getBoundingClientRect();
+                return legend.left >= overview.right - 1 && Math.abs(overview.top - legend.top) <= 1
+                    && Math.abs(overview.height - legend.height) <= 1;
+            }""")
             for chart in ids:
                 expect(page.locator('#' + chart)).to_be_visible()
                 page.wait_for_function("""id => {
