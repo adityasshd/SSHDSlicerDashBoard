@@ -1,17 +1,72 @@
-window.dash_clientside = Object.assign({}, window.dash_clientside, {
-    clientside: {
-        toggleTheme: function(n_clicks) {
-            let isDark = (n_clicks || 0) % 2 === 0;
-            if (isDark) {
-                document.documentElement.setAttribute('data-bs-theme', 'dark');
-                return 'theme-dark';
-            } else {
-                document.documentElement.setAttribute('data-bs-theme', 'light');
-                return 'theme-light';
-            }
+// Resolve the system theme at startup; persist only an explicit button override.
+(function () {
+    const KEY = 'sshd-slicing-theme-preference';
+    const media = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+    let previousClicks = null;
+    let sessionOverride = null;
+
+    function manualPreference() {
+        try {
+            const saved = window.localStorage.getItem(KEY);
+            return saved === 'light' || saved === 'dark' ? saved : null;
+        } catch (error) {
+            return sessionOverride;
         }
     }
-});
+    function currentTheme() {
+        return manualPreference() || (media && !media.matches ? 'light' : 'dark');
+    }
+    function applyTheme(mode) {
+        document.documentElement.setAttribute('data-bs-theme', mode);
+        const shell = document.getElementById('main-container');
+        if (shell) {
+            shell.classList.toggle('theme-dark', mode === 'dark');
+            shell.classList.toggle('theme-light', mode === 'light');
+            shell.classList.remove('theme-system');
+        }
+        const button = document.getElementById('theme-toggle');
+        if (button) {
+            const label = mode === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+            button.setAttribute('aria-label', label);
+            button.setAttribute('title', label);
+        }
+    }
+    function toggleTheme(clicks) {
+        const count = Number.isFinite(Number(clicks)) ? Number(clicks) : 0;
+        // Initial Dash invocation is NOT a manual choice.
+        if (previousClicks !== null && count > previousClicks) {
+            const next = currentTheme() === 'dark' ? 'light' : 'dark';
+            sessionOverride = next;
+            try { window.localStorage.setItem(KEY, next); } catch (error) { /* session fallback */ }
+        }
+        previousClicks = count;
+        const effective = currentTheme();
+        applyTheme(effective);
+        // Existing Python figures use even = dark, odd = light.
+        return effective === 'dark' ? 0 : 1;
+    }
+
+    // System changes remain live until a manual override is stored.
+    function followSystem() {
+        if (manualPreference()) return;
+        const mode = currentTheme();
+        applyTheme(mode);
+        if (window.dash_clientside && typeof window.dash_clientside.set_props === 'function') {
+            window.dash_clientside.set_props('theme-effective-count', {
+                data: mode === 'dark' ? 0 : 1
+            });
+        }
+    }
+    if (media) {
+        if (typeof media.addEventListener === 'function') media.addEventListener('change', followSystem);
+        else if (typeof media.addListener === 'function') media.addListener(followSystem);
+    }
+    applyTheme(currentTheme());
+    window.dash_clientside = window.dash_clientside || {};
+    window.dash_clientside.clientside = Object.assign(
+        {}, window.dash_clientside.clientside, {toggleTheme: toggleTheme}
+    );
+})();
 
 // Report graphs are mounted while their route is hidden. Plotly needs the
 // visible container size after route changes, and after a new figure arrives.

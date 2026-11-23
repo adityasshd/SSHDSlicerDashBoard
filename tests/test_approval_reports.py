@@ -84,7 +84,8 @@ def test_dashboard_cleanup_retains_reports_and_management():
     assert 'approval-trend-chart' not in by_id
     assert 'individual-chart' in by_id
     assert 'approval-outcomes-chart' not in by_id
-    assert by_id['main-container'].className == 'theme-dark'
+    assert by_id['main-container'].className == 'theme-system'
+    assert 'theme-effective-count' in by_id
     assert by_id['theme-toggle'].n_clicks == 0
     assert 'daily-report-page' in by_id and 'user-report-page' in by_id
     assert 'tabs' not in by_id and 'tabs-content' not in by_id

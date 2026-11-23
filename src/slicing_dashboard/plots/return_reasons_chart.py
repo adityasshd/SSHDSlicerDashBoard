@@ -227,8 +227,8 @@ def build_return_reasons_chart(
         plot_bgcolor=theme["bg_color"],
         font={"family": "Inter, sans-serif", "size": 12, "color": theme["font_color"]},
         hoverlabel={"bgcolor": theme["hover_bg"], "font": {"color": theme["hover_fg"]}},
-        height=max(420, 220 + len(sorted_users) * 34),
-        margin={"l": 90, "r": 25, "t": 100, "b": 130},
+        height=max(315, 160 + len(sorted_users) * 23),
+        margin={"l": 95, "r": 16, "t": 83, "b": 47},
         xaxis={
             "title": {"text": "Reason mentions (a return can count in several categories)", "font": {"size": 11}},
             "rangemode": "tozero",
@@ -256,7 +256,7 @@ def build_return_reasons_chart(
             "y": 1.15,
             "yanchor": "bottom",
             "font": {"size": 11},
-            "entrywidth": 160,
+            "entrywidth": 125,
         },
     )
 

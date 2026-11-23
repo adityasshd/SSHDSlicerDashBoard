@@ -262,7 +262,7 @@ def overview_values(kind, request, saved, live, selected, theme, completion_stat
 
 
 def register_dashboard_panels(app, manager, roster):
-    @app.callback(Output('kpi-overview', 'className'), Input('theme-toggle', 'n_clicks'))
+    @app.callback(Output('kpi-overview', 'className'), Input('theme-effective-count', 'data'))
     def overview_theme(theme):
         return 'kpiu-overview ' + ('kpiu-dark theme-dark' if (theme or 0) % 2 == 0 else 'kpiu-light theme-light')
 
@@ -463,7 +463,7 @@ def _register_panel(app, manager, roster, kind):
     @app.callback(*outputs, Output(f'dashboard-ready-{kind}', 'data'),
                   Output(f'dashboard-painted-{kind}', 'data'),
                   Input(request_store, 'data'), Input(f'dashboard-saved-{kind}', 'data'),
-                  Input('selected-users-store', 'data'), Input('theme-toggle', 'n_clicks'),
+                  Input('selected-users-store', 'data'), Input('theme-effective-count', 'data'),
                   *rework_input, *completion_input, *pending_inputs,
                   State(f'dashboard-live-{kind}', 'data'), State('report-location', 'pathname'),
                   State(f'dashboard-ready-{kind}', 'data'))

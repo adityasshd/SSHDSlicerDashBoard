@@ -23,6 +23,11 @@ jobs:
           python-version: '3.12'
       - name: Install dashboard and testing dependencies
         run: python -m pip install -r requirements.txt pytest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Verify system theme and compact desktop layout
+        run: node --test tests/theme-preference.test.cjs
       - name: Compile Python sources
         run: python -m compileall -q src/slicing_dashboard
       - name: Run focused dashboard regressions

@@ -91,7 +91,7 @@ _initial_fig = empty_fig()
 # ── Layout ───────────────────────────────────────────────────────────────
 app.layout = html.Div(
     id="main-container",
-    className="theme-dark",
+    className="theme-system",
     children=[
         dbc.Container(
             [
@@ -189,7 +189,7 @@ app.layout = html.Div(
                                 html.I(className="bi bi-moon-stars"),
                                 id="theme-toggle",
                                 n_clicks=0,
-                                title='Toggle color theme',
+                                title='Switch color theme',
                                 color="link",
                                 className="text-decoration-none fs-5 text-primary p-0",
                             ),
@@ -228,6 +228,7 @@ app.layout = html.Div(
 
                 # ── Server Status Offline Banner ─────────────────────
                 html.Div(id="server-status-banner"),
+                dcc.Store(id="theme-effective-count", data=0),
 
                 # ── Unified KPI overview ────────────────────────────
                 html.Div([
@@ -247,13 +248,13 @@ app.layout = html.Div(
                             id="individual-chart", figure=_initial_fig,
                             config=_graph_cfg, responsive=True,
                             className="report-comparison-chart",
-                            style={"height": "420px", "width": "100%"},
+                            style={"height": "300px", "width": "100%"},
                         ), width=12, lg=9),
                         dbc.Col(dcc.Graph(
                             id="universal-legend", figure=_initial_fig,
                             config=_graph_cfg, responsive=True,
                             className="chart-compact",
-                            style={"height": "420px", "width": "100%"},
+                            style={"height": "300px", "width": "100%"},
                         ), width=12, lg=3),
                     ], className="dashboard-completion-lead"),
                 ], className="glass-panel report-section dashboard-lead"),
@@ -298,6 +299,7 @@ app.layout = html.Div(
                         style=_graph_style,
                     ), width=12, lg=6),
                 ], className="dashboard-chart-row dashboard-matrix-row"),
+                html.Div([
                 # ── Chart row 3: Assigned & Rework by ID (Dynamic Height) ──
                 dbc.Row(
                     [
@@ -333,6 +335,8 @@ app.layout = html.Div(
                     ],
                     className="mb-2",
                 ),
+
+                ], className="dashboard-bottom-grid"),
 
                 # ── Tabs + Table ─────────────────────────────────────
             ],
@@ -496,7 +500,7 @@ def reset_workflow_page(*filters):
               Input('workflow-member', 'value'), Input('workflow-batch', 'value'), Input('workflow-task', 'value'),
               Input('workflow-stage', 'value'), Input('workflow-evidence', 'value'), Input('workflow-action', 'value'),
               Input('workflow-search', 'value'), Input('workflow-from', 'value'), Input('workflow-to', 'value'),
-              Input('workflow-history-table', 'page_current'), Input('theme-toggle', 'n_clicks'))
+              Input('workflow-history-table', 'page_current'), Input('theme-effective-count', 'data'))
 def render_workflow_history(pathname, status, member, batch, task, stage, evidence, action, search, start, end, page, theme):
     from datetime import date
     if pathname != '/workflow':
@@ -582,7 +586,7 @@ def load_daily_report(pathname, n_clicks, n_intervals, report_date):
     Output("refresh-status", "children", allow_duplicate=True),
     Output("theme-toggle", "children", allow_duplicate=True),
     Output('daily-live-request', 'data'),
-    Input("daily-report-store", "data"), Input("theme-toggle", "n_clicks"),
+    Input("daily-report-store", "data"), Input("theme-effective-count", "data"),
     Input("report-location", "pathname"),
     State('daily-live-request', 'data'), State('daily-live-store', 'data'),
     prevent_initial_call=True,
@@ -618,7 +622,7 @@ def load_daily_live(request, pathname):
     Output('refresh-status', 'children', allow_duplicate=True),
     Output('theme-toggle', 'children', allow_duplicate=True),
     Input('daily-live-store', 'data'), State('daily-report-store', 'data'),
-    State('theme-toggle', 'n_clicks'), State('report-location', 'pathname'), prevent_initial_call=True,
+    State('theme-effective-count', 'data'), State('report-location', 'pathname'), prevent_initial_call=True,
 )
 def render_daily_live(live, saved, theme_clicks, pathname):
     if (pathname != '/reports/daily' or not live or not saved or
@@ -729,7 +733,7 @@ def update_report_people(data, selected, status=None, live=None):
     Output("refresh-status", "children", allow_duplicate=True),
     Output("theme-toggle", "children", allow_duplicate=True),
     Input("user-report-store", "data"), Input("user-report-person", "value"),
-    Input("theme-toggle", "n_clicks"), Input("report-location", "pathname"),
+    Input("theme-effective-count", "data"), Input("report-location", "pathname"),
     prevent_initial_call=True,
 )
 def render_user_report(data, user, theme_clicks, pathname):
@@ -765,7 +769,7 @@ def load_user_batches(pathname, clicks, intervals, report_date):
 @app.callback(
     Output('user-report-batches', 'children'),
     Input('user-batches-store', 'data'), Input('user-report-person', 'value'),
-    Input('user-report-store', 'data'), Input('theme-toggle', 'n_clicks'),
+    Input('user-report-store', 'data'), Input('theme-effective-count', 'data'),
     Input('report-location', 'pathname'), prevent_initial_call=True,
 )
 def render_user_batches(capture, user, data, theme_clicks, pathname):
@@ -790,7 +794,7 @@ def render_user_batches(capture, user, data, theme_clicks, pathname):
 
 app.clientside_callback(
     dash.ClientsideFunction(namespace="clientside", function_name="toggleTheme"),
-    Output("main-container", "className"),
+    Output("theme-effective-count", "data"),
     Input("theme-toggle", "n_clicks"),
 )
 
@@ -1170,7 +1174,7 @@ def update_dashboard(
         fig_ind,
         fig_assigned,
         status_msg,
-        toggle_label if triggered_id in (None, "theme-toggle") else dash.no_update,
+        toggle_label if triggered_id in (None, "theme-effective-count") else dash.no_update,
         current_selection if selection_changed else dash.no_update,
         banner_el,
         badge_el,
@@ -1198,7 +1202,7 @@ def heartbeat_check(n_intervals):
 
 @app.callback(
     Output("universal-legend", "figure"),
-    Input("selected-users-store", "data"), Input("theme-toggle", "n_clicks"),
+    Input("selected-users-store", "data"), Input("theme-effective-count", "data"),
     Input("report-location", "pathname"),
 )
 def render_dashboard_legend(selected_users, theme_clicks, pathname):
@@ -1218,7 +1222,7 @@ register_status_reports(app, dm)
 
 @app.callback(Output('theme-toggle', 'children'), Output('server-status-banner', 'children'),
               Output('server-status-badge', 'children'),
-              Input('theme-toggle', 'n_clicks'), Input('server-status-store', 'data'))
+              Input('theme-effective-count', 'data'), Input('server-status-store', 'data'))
 def render_dashboard_controls(theme_clicks, status):
     dark = (theme_clicks or 0) % 2 == 0
     icon = html.I(className='bi bi-sun-fill text-warning fs-5' if dark else
@@ -1235,7 +1239,7 @@ register_management_callbacks(app, dm)
     Input("date-from", "value"),
     Input("date-to", "value"),
     Input("selected-users-store", "data"),
-    Input("theme-toggle", "n_clicks"),
+    Input("theme-effective-count", "data"),
     Input("refresh-btn", "n_clicks"),
     Input("auto-refresh-interval", "n_intervals"),
     Input("report-location", "pathname"),

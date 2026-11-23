@@ -119,7 +119,7 @@ class TestDashboardPerformance(unittest.TestCase):
                                           ['#165a50', '#78b844', '#8b5cf6', '#0891b2', '#668376']),
                                 bargap=.42, bargroupgap=.18)
                 for axis in ('xaxis', 'yaxis'):
-                    expected[axis].update(gridcolor='rgba(148,163,184,.16)' if dark else '#edf0f5',
+                    expected[axis].update(gridcolor='rgba(148,163,184,.16)' if dark else '#d5e2d8',
                                           zeroline=False)
                 self.assertEqual(compact['layout'], expected)
                 for kind in ('bar', 'scatter'):
