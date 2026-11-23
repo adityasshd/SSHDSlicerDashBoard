@@ -232,11 +232,6 @@ app.layout = html.Div(
 
                 # ── Unified KPI overview ────────────────────────────
                 html.Div([
-                    html.Div([html.Span('OVERVIEW', className='dashboard-eyebrow'),
-                              html.H1('Slicing performance')]),
-                    html.Span('Team activity', className='dashboard-period-badge'),
-                ], className='dashboard-heading'),
-                html.Div([
                     html.Div(build_kpi_layout({}, {}, True), id="kpi-cards",
                              className="kpi-overview-container"),
                     dcc.Graph(id="universal-legend", figure=_initial_fig, config=_graph_cfg,
