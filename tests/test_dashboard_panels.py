@@ -95,7 +95,7 @@ def test_main_dashboard_serves_new_overview_and_rework_metric_through_real_callb
     values = {'dashboard-panel-request': request_for(),
               'dashboard-saved-summary': {**summary, 'request_id': 'one'},
               'dashboard-live-summary': None, 'dashboard-ready-summary': None,
-              'selected-users-store': ['Riya'], 'theme-toggle': theme, 'report-location': '/'}
+              'selected-users-store': ['Riya'], 'theme-effective-count': theme, 'report-location': '/'}
 
     def update(key):
         callback = app.callback_map[key]
