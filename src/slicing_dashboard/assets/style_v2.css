@@ -870,10 +870,11 @@ body {
         max-height: max(380px, 72vh); overflow-y: auto;
     }
     #dashboard-page:not(.preparing-print) > :is(
-        .dashboard-insights, .dashboard-matrix-row, .dashboard-assigned, .dashboard-reasons
+        .dashboard-lead, .dashboard-insights, .dashboard-matrix-row, .dashboard-assigned, .dashboard-reasons
     ) { display: none; }
     #dashboard-page.view-activity:not(.preparing-print) > .dashboard-insights,
     #dashboard-page.view-matrices:not(.preparing-print) > .dashboard-matrix-row { display: flex; }
+    #dashboard-page.view-completed:not(.preparing-print) > .dashboard-lead,
     #dashboard-page.view-assigned:not(.preparing-print) > .dashboard-assigned,
     #dashboard-page.view-reasons:not(.preparing-print) > .dashboard-reasons { display: block; }
 }

@@ -242,6 +242,22 @@ app.layout = html.Div(
                 # The completed lollipop now leads the dashboard. Its diamond
                 # marks completed + current pending-review video duration.
                 # Keep the clickable team filter adjacent to the chart.
+                html.Fieldset([
+                    html.Legend("Dashboard charts", className="visually-hidden"),
+                    dcc.RadioItems(
+                        id="dashboard-chart-view",
+                        options=[
+                            {"label": "Completed duration", "value": "completed"},
+                            {"label": "Submissions & review", "value": "activity"},
+                            {"label": "Rework & pending", "value": "matrices"},
+                            {"label": "Assigned work", "value": "assigned"},
+                            {"label": "Return reasons", "value": "reasons"},
+                        ],
+                        value="completed",
+                        inline=True,
+                    ),
+                ], className="dashboard-view-picker"),
+
                 html.Section([
                     dbc.Row([
                         dbc.Col(dcc.Graph(
@@ -258,21 +274,6 @@ app.layout = html.Div(
                         ), width=12, lg=3),
                     ], className="dashboard-completion-lead"),
                 ], className="glass-panel report-section dashboard-lead"),
-
-                html.Fieldset([
-                    html.Legend("Dashboard charts", className="visually-hidden"),
-                    dcc.RadioItems(
-                        id="dashboard-chart-view",
-                        options=[
-                            {"label": "Submissions & review", "value": "activity"},
-                            {"label": "Rework & pending", "value": "matrices"},
-                            {"label": "Assigned work", "value": "assigned"},
-                            {"label": "Return reasons", "value": "reasons"},
-                        ],
-                        value="activity",
-                        inline=True,
-                    ),
-                ], className="dashboard-view-picker"),
 
                 dbc.Row([
                     dbc.Col(dcc.Graph(id='today-submissions-lollipop-chart', figure=_initial_fig,
