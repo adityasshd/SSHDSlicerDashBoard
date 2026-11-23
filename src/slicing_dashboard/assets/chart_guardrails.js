@@ -281,6 +281,17 @@
         }).observe(document.body, {childList: true, subtree: true});
         document.addEventListener('scroll', hideTooltip, true);
         window.addEventListener('resize', hideTooltip);
+        window.addEventListener('beforeprint', () => {
+            const page = document.getElementById('dashboard-page');
+            if (!page?.getClientRects().length || !window.Plotly) return;
+            page.classList.add('preparing-print');
+            for (const plot of page.querySelectorAll('.js-plotly-plot')) {
+                if (plot._fullLayout) window.Plotly.relayout(plot, {autosize: true});
+            }
+        });
+        window.addEventListener('afterprint', () => {
+            document.querySelector('#dashboard-page.preparing-print')?.classList.remove('preparing-print');
+        });
         watch();
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);

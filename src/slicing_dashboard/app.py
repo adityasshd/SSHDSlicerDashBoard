@@ -259,6 +259,21 @@ app.layout = html.Div(
                     ], className="dashboard-completion-lead"),
                 ], className="glass-panel report-section dashboard-lead"),
 
+                html.Fieldset([
+                    html.Legend("Dashboard charts", className="visually-hidden"),
+                    dcc.RadioItems(
+                        id="dashboard-chart-view",
+                        options=[
+                            {"label": "Submissions & review", "value": "activity"},
+                            {"label": "Rework & pending", "value": "matrices"},
+                            {"label": "Assigned work", "value": "assigned"},
+                            {"label": "Return reasons", "value": "reasons"},
+                        ],
+                        value="activity",
+                        inline=True,
+                    ),
+                ], className="dashboard-view-picker"),
+
                 dbc.Row([
                     dbc.Col(dcc.Graph(id='today-submissions-lollipop-chart', figure=_initial_fig,
                                       config=_graph_cfg, className='glass-panel',
@@ -299,44 +314,14 @@ app.layout = html.Div(
                         style=_graph_style,
                     ), width=12, lg=6),
                 ], className="dashboard-chart-row dashboard-matrix-row"),
-                html.Div([
-                # ── Chart row 3: Assigned & Rework by ID (Dynamic Height) ──
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            dcc.Graph(
-                                id="assigned-chart",
-                                figure=_initial_fig,
-                                config=_graph_cfg,
-                                className="glass-panel p-1 rounded shadow-sm chart-compact",
-                                style={"minHeight": "260px", "height": "auto"},
-                            ),
-                            width=12,
-                            className="mb-2 mb-lg-0",
-                        ),
-                    ],
-                    className="mb-2",
-                ),
-
-                # ── Chart row 4: Major Return Reasons by User ───────
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            html.Div([dcc.Graph(
-                                id="return-reasons-chart",
-                                figure=_initial_fig,
-                                config=_graph_cfg,
-                                className="glass-panel p-1 rounded shadow-sm chart-compact",
-                                style={"minHeight": "360px", "height": "auto"},
-                            )]),
-                            width=12,
-                            className="mb-2 mb-lg-0",
-                        ),
-                    ],
-                    className="mb-2",
-                ),
-
-                ], className="dashboard-bottom-grid"),
+                html.Div(dcc.Graph(
+                    id="assigned-chart", figure=_initial_fig, config=_graph_cfg,
+                    className="glass-panel", style=_graph_style,
+                ), className="dashboard-assigned"),
+                html.Div(dcc.Graph(
+                    id="return-reasons-chart", figure=_initial_fig, config=_graph_cfg,
+                    className="glass-panel", style={"height": "440px"},
+                ), className="dashboard-reasons"),
 
                 # ── Tabs + Table ─────────────────────────────────────
             ],
@@ -351,6 +336,11 @@ app.layout = add_reporting_shell(app.layout, today_iso(), report_users(
     dm.user_mapping, dm._snapshot_payload,
     mapping_records=list(getattr(dm, 'user_mapping_full', {}).values())))
 app.layout = contain_graphs(app.layout)
+app.clientside_callback(
+    "function(view) { return 'view-' + view; }",
+    Output("dashboard-page", "className"),
+    Input("dashboard-chart-view", "value"),
+)
 register_monthly_returns(app, dm, available_users)
 register_today_submissions(app, dm)
 

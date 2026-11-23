@@ -35,3 +35,15 @@ jobs:
           python -m pytest -q             tests/test_verified_duration_heatmaps.py             tests/test_today_submissions_lollipop.py             tests/test_dashboard_panels.py             tests/test_pending_review.py             tests/test_heatmap_column_scales.py             tests/test_period_completion_charts.py
       - name: Run complete regression suite
         run: python -m pytest -q
+      - name: Check rendered dashboard sizes and print layout
+        run: |
+          python -m pip install playwright
+          PYTHONPATH=src:. python scripts/dashboard_chart_preview.py > /tmp/dashboard-preview.log 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..40}; do
+            if curl -fsS http://127.0.0.1:8059/qa/state >/dev/null; then break; fi
+            if ! kill -0 "$preview_pid"; then cat /tmp/dashboard-preview.log; exit 1; fi
+            sleep 1
+          done
+          python scripts/check_dashboard_layout.py
