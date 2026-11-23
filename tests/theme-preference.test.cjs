@@ -80,10 +80,10 @@ test('system changes repaint charts when there is no override', () => {
     app.click(0);
     app.media.setSystem(true);
     assert.equal(app.currentTheme(), 'dark');
-    assert.deepEqual(app.props.at(-1), {id: 'theme-effective-count', value: {data: 0}});
+    assert.equal(JSON.stringify(app.props.at(-1)), JSON.stringify({id: 'theme-effective-count', value: {data: 0}}));
     app.media.setSystem(false);
     assert.equal(app.currentTheme(), 'light');
-    assert.deepEqual(app.props.at(-1), {id: 'theme-effective-count', value: {data: 1}});
+    assert.equal(JSON.stringify(app.props.at(-1)), JSON.stringify({id: 'theme-effective-count', value: {data: 1}}));
 });
 
 test('desktop compact layout retains all charts without hiding panels', () => {
