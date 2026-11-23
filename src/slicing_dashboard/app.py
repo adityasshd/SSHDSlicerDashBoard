@@ -236,19 +236,21 @@ app.layout = html.Div(
                               html.H1('Slicing performance')]),
                     html.Span('Team activity', className='dashboard-period-badge'),
                 ], className='dashboard-heading'),
-                html.Div(build_kpi_layout({}, {}, True), id="kpi-cards", className="kpi-overview-container mb-2"),
+                html.Div([
+                    html.Div(build_kpi_layout({}, {}, True), id="kpi-cards",
+                             className="kpi-overview-container"),
+                    dcc.Graph(id="universal-legend", figure=_initial_fig, config=_graph_cfg,
+                              responsive=True, className="glass-panel",
+                              style={"height": "260px"}),
+                ], className="dashboard-overview-row"),
 
                 dcc.Store(id="dashboard-today-submissions-evidence"),
-                # The completed lollipop now leads the dashboard. Its diamond
-                # marks completed + current pending-review video duration.
-                # Keep the clickable team filter adjacent to the chart.
                 html.Fieldset([
                     html.Legend("Dashboard charts", className="visually-hidden"),
                     dcc.RadioItems(
                         id="dashboard-chart-view",
                         options=[
-                            {"label": "Completed duration", "value": "completed"},
-                            {"label": "Submissions & review", "value": "activity"},
+                            {"label": "Completed & submitted", "value": "completed"},
                             {"label": "Rework & pending", "value": "matrices"},
                             {"label": "Assigned work", "value": "assigned"},
                             {"label": "Return reasons", "value": "reasons"},
@@ -261,28 +263,15 @@ app.layout = html.Div(
                 html.Section([
                     dbc.Row([
                         dbc.Col(dcc.Graph(
-                            id="individual-chart", figure=_initial_fig,
-                            config=_graph_cfg, responsive=True,
-                            className="report-comparison-chart",
-                            style={"height": "300px", "width": "100%"},
-                        ), width=12, lg=9),
+                            id="individual-chart", figure=_initial_fig, config=_graph_cfg,
+                            responsive=True, className="glass-panel", style=_graph_style,
+                        ), width=12, lg=6),
                         dbc.Col(dcc.Graph(
-                            id="universal-legend", figure=_initial_fig,
-                            config=_graph_cfg, responsive=True,
-                            className="chart-compact",
-                            style={"height": "300px", "width": "100%"},
-                        ), width=12, lg=3),
+                            id="today-submissions-lollipop-chart", figure=_initial_fig,
+                            config=_graph_cfg, className="glass-panel", style=_graph_style,
+                        ), width=12, lg=6),
                     ], className="dashboard-completion-lead"),
-                ], className="glass-panel report-section dashboard-lead"),
-
-                dbc.Row([
-                    dbc.Col(dcc.Graph(id='today-submissions-lollipop-chart', figure=_initial_fig,
-                                      config=_graph_cfg, className='glass-panel',
-                                      style=_graph_style), width=12, lg=7),
-                    dbc.Col(dcc.Graph(id='review-workload-chart', figure=_initial_fig,
-                                      config=_graph_cfg, className='glass-panel',
-                                      style=_graph_style), width=12, lg=5),
-                ], className='dashboard-insights mb-2'),
+                ], className="dashboard-lead"),
 
                 # ── Stores & Intervals ───────────────────────────────
                 dcc.Store(id="selected-users-store", data=available_users),

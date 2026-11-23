@@ -82,10 +82,10 @@ try {
         const inspect = `(() => {
             const plot = id => document.querySelector('#'+id+' .js-plotly-plot');
             const seconds = text => text.split(':').reduce((n,v)=>n*60+Number(v),0);
-            const review = plot('review-workload-chart'), pending = plot('pending-chart');
+            const pending = plot('pending-chart');
             const assigned = plot('assigned-chart'), completed = plot('individual-chart');
             const rework = plot('rework-ratio-chart');
-            if (!review?.data?.length || !pending?.data?.length || !rework?.data?.length || !completed?.data?.length || !assigned?.data?.length) return null;
+            if (!pending?.data?.length || !rework?.data?.length || !completed?.data?.length || !assigned?.data?.length) return null;
             const matrices = [pending,rework].map(p=>({
                 rows:p.data[0].y.length, last:p.data.at(-1).y[0], scale:p.data[0].showscale,
                 totals:p.layout.meta.column_totals, sums:p.data[0].z[0].map((_,i)=>p.data[0].z.reduce((n,row)=>n+row[i],0)),
@@ -95,7 +95,6 @@ try {
             }));
             return {matrices,
                 review:seconds(document.querySelector('#kpi-review .kpiu-row-value').textContent),
-                donut:review.data[0].values.reduce((a,b)=>a+b,0),
                 pending:pending.layout.meta.column_totals.reduce((a,b)=>a+b,0)*3600,
                 assigned:seconds(document.querySelector('#kpi-assigned .kpiu-row-value').textContent),
                 assignedChart:assigned.data.filter(t=>t.type==='bar').reduce((n,t)=>n+t.x.reduce((a,b)=>a+b,0)*3600,0),
@@ -128,7 +127,7 @@ try {
                         matrix.totals.some((v,i)=>Math.abs(v-matrix.sums[i])>1e-6)) throw new Error('Incorrect matrix total');
                 }
                 if (evidence.checkboxes || evidence.captureDetails || evidence.documentWidth>width+1 ||
-                    Math.abs(evidence.review-evidence.donut)>1 || Math.abs(evidence.review-evidence.pending)>1 ||
+                    Math.abs(evidence.review-evidence.pending)>1 ||
                     Math.abs(evidence.assigned-evidence.assignedChart)>1 || Math.abs(evidence.approved-evidence.completed)>1 ||
                     Math.abs(evidence.approved-evidence.pyramidSeconds)>1 || Math.abs(evidence.approved-evidence.completedHeatmap)>1 ||
                     evidence.reworkText.includes('Breakdown unavailable')) throw new Error('Overview reconciliation failed: '+JSON.stringify(evidence));
@@ -194,19 +193,18 @@ try {
             for (const width of (pattern === 'varied' ? [390, 1366, 1920] : [1366])) {
                 await call('Emulation.setDeviceMetricsOverride', {width, height: 1000, deviceScaleFactor: 2, mobile: false});
                 await call('Page.navigate', {url: qaOrigin + '/'});
-                await until(`${lead}?.layout?.meta?.chart_role === 'primary-trend' && document.querySelector('#review-workload-chart .js-plotly-plot')?.data?.[0]?.type === 'pie' && document.querySelector('#approval-progression-chart .js-plotly-plot')?.data?.[0]?.type === 'funnel'`);
+                await until(`${lead}?.layout?.meta?.chart_role === 'primary-trend' && document.querySelector('#approval-progression-chart .js-plotly-plot')?.data?.[0]?.type === 'funnel'`);
                 for (const theme of ['dark', 'light']) {
                     if (theme === 'light') {
                         await evaluate(`document.querySelector('#theme-toggle').click()`);
                         await until(`document.querySelector('#main-container').className === 'theme-light' && ${lead}.layout.font.color === '#354039'`);
                     }
                     await until(`!Array.from(document.querySelectorAll('[data-dash-is-loading="true"]')).some(${visible})`);
-                    await until(`['approval-trend-chart','approval-progression-chart','review-workload-chart','return-reasons-chart'].every(id=>document.querySelector('#'+id+' .js-plotly-plot')?.layout?.font?.color === '${theme === 'light' ? '#354039' : '#ccd0ce'}')`);
+                    await until(`['approval-trend-chart','approval-progression-chart','return-reasons-chart'].every(id=>document.querySelector('#'+id+' .js-plotly-plot')?.layout?.font?.color === '${theme === 'light' ? '#354039' : '#ccd0ce'}')`);
                     const view = await evaluate(`(() => {
                         const p=${lead}, g=document.querySelector('#approval-trend-chart'), r=g.getBoundingClientRect();
                         const markers=Array.from(p.querySelectorAll('.scatterlayer .point'));
                         const bars=document.querySelector('#individual-chart .js-plotly-plot');
-                        const donut=document.querySelector('#review-workload-chart .js-plotly-plot');
                         const funnel=document.querySelector('#approval-progression-chart .js-plotly-plot');
                         return {viewport:innerWidth,documentWidth:document.documentElement.scrollWidth,plotHeight:p._fullLayout._size.h,
                             markerCount:markers.length,recorded:p.layout.meta.recorded_days,
@@ -216,7 +214,7 @@ try {
                             roundedPaths:Array.from(bars.querySelectorAll('.point path')).some(el=>/[AQaq]/.test(el.getAttribute('d'))),
                             capsules:Array.from(bars.querySelectorAll('[data-dashboard-capsules] rect')).map(el=>({
                                 width:Number(el.getAttribute('width')),height:Number(el.getAttribute('height')),radius:Number(el.getAttribute('rx'))})),
-                            donut:donut.data[0].type,funnel:funnel.data[0].type,
+                            funnel:funnel.data[0].type,
                             paper:getComputedStyle(document.querySelector('.dashboard-lead')).backgroundColor};
                     })()`);
                     if (view.documentWidth > width + 1 || view.plotHeight < 250 || view.markerClipped || view.barRadius !== 7 || !view.roundedPaths)

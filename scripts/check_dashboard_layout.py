@@ -5,8 +5,7 @@ from playwright.sync_api import expect, sync_playwright
 
 
 GROUPS = {
-    'Completed duration': ('individual-chart', 'universal-legend'),
-    'Submissions & review': ('today-submissions-lollipop-chart', 'review-workload-chart'),
+    'Completed & submitted': ('individual-chart', 'today-submissions-lollipop-chart'),
     'Rework & pending': ('rework-ratio-chart', 'pending-chart'),
     'Assigned work': ('assigned-chart',),
     'Return reasons': ('return-reasons-chart',),
@@ -27,6 +26,13 @@ def check_layout(page):
         page.set_viewport_size({'width': width, 'height': height})
         for name, ids in GROUPS.items():
             page.get_by_role('radio', name=name, exact=True).check()
+            expect(page.locator('#universal-legend')).to_be_visible()
+            expect(page.locator('#review-workload-chart')).to_have_count(0)
+            overview = page.locator('#kpi-overview').bounding_box()
+            legend = page.locator('.dashboard-overview-row > .chart-frame').bounding_box()
+            assert legend['x'] >= overview['x'] + overview['width'] - 1
+            assert abs(overview['height'] - legend['height']) <= 1
+            assert abs(overview['y'] - legend['y']) <= 1
             for chart in ids:
                 expect(page.locator('#' + chart)).to_be_visible()
                 page.wait_for_function("""id => {

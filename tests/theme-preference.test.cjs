@@ -89,7 +89,7 @@ test('system changes repaint charts when there is no override', () => {
 test('desktop detail selection is screen-only and preserves data-driven chart heights', () => {
     const css = fs.readFileSync(path.join(__dirname, '../src/slicing_dashboard/assets/style_v2.css'), 'utf8');
     const desktop = css.slice(css.indexOf('@media screen and (min-width: 1024px)'), css.indexOf('@page slicing-overview'));
-    for (const view of ['completed', 'activity', 'matrices', 'assigned', 'reasons']) {
+    for (const view of ['completed', 'matrices', 'assigned', 'reasons']) {
         assert.ok(desktop.includes('#dashboard-page.view-' + view));
     }
     assert.doesNotMatch(css, /height:\s*(185|205|215)px !important/);
