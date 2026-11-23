@@ -118,3 +118,43 @@
     .kpiu-metrics > :nth-child(n) { padding: 0; border: 0; }
     .kpiu-metrics > :nth-child(n + 2) { padding-top: 16px; border-top: 1px solid var(--kpiu-rule); }
 }
+
+/* Keep the full overview in one compact, balanced desktop band. */
+@media (min-width: 1024px) and (orientation: landscape) {
+    #dashboard-page .kpiu-overview { padding: 10px 15px; }
+    #dashboard-page .kpiu-header { margin-bottom: 6px; }
+    #dashboard-page .kpiu-main {
+        grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-rows: minmax(0, auto); gap: 0 18px; padding-bottom: 9px;
+        align-items: center;
+    }
+    #dashboard-page .kpiu-hero { grid-column: 1; grid-row: 1; }
+    #dashboard-page .kpiu-assigned { grid-column: 2; grid-row: 1; }
+    #dashboard-page .kpiu-review {
+        grid-column: 3; grid-row: 1; padding: 0 0 0 16px;
+        border-top: 0; border-left: 1px solid var(--kpiu-rule);
+    }
+    #dashboard-page .kpiu-primary .kpiu-number { font-size: clamp(30px, 3.4vw, 49px); }
+    #dashboard-page .kpiu-header .kpiu-eyebrow { font-size: 13px; }
+    #dashboard-page .kpiu-label { margin-bottom: 3px; font-size: 11px; }
+    #dashboard-page .kpiu-row-value { font-size: clamp(19px, 2vw, 26px); }
+    #dashboard-page .kpiu-rework { padding-top: 8px; }
+    #dashboard-page .kpiu-rework .kpiu-legend {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 6px 12px; margin-top: 7px;
+    }
+    #dashboard-page .kpiu-rework .kpiu-legend-value { font-size: clamp(15px, 1.3vw, 21px); }
+    #dashboard-page .kpiu-metrics { margin-top: 8px; padding-top: 8px; }
+    #dashboard-page .kpiu-metrics > * { padding-inline: 12px; }
+    #dashboard-page .kpiu-metrics > :first-child { padding-left: 0; }
+    #dashboard-page .kpiu-metrics .kpiu-number { font-size: clamp(18px, 1.4vw, 23px); }
+    #dashboard-page .kpiu-meta,
+    #dashboard-page .kpiu-trend { margin-top: 3px; font-size: 10px; line-height: 1.25; }
+    #dashboard-page .kpiu-distribution { margin-top: 6px; }
+    #dashboard-page .kpiu-track { min-height: 7px; }
+}
+@media (min-width: 1024px) and (max-width: 1199px) and (orientation: landscape) {
+    #dashboard-page .kpiu-main { gap: 0 10px; }
+    #dashboard-page .kpiu-rework .kpiu-legend { gap: 4px 7px; }
+    #dashboard-page .kpiu-legend-item { font-size: 10px; }
+}
