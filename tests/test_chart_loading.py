@@ -32,6 +32,7 @@ def test_lead_lollipop_uses_existing_completion_and_pending_captures():
     from tests.test_daily_report_page import components
     ids = [getattr(node, 'id', None) for node in components(namespace['app'].layout)]
     assert ids.count('individual-chart') == ids.count('universal-legend') == 1
+    assert 'review-workload-chart' not in ids
     assert 'approval-trend-chart' not in ids
     manager.get_dashboard_trend_data.assert_not_called()
 
@@ -75,7 +76,6 @@ def test_plotly_team_legend_filters_every_dashboard_visual():
     # The visible legend and selected-user store share the same selection.
     for output in ('individual-chart.figure', 'pending-chart.figure',
                    'rework-ratio-chart.figure', 'assigned-chart.figure',
-                   'review-workload-chart.figure',
                    'today-submissions-lollipop-chart.figure',
                    'return-reasons-chart.figure'):
         callbacks = [item for key, item in app.callback_map.items() if output in key]
