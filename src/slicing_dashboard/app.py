@@ -232,41 +232,41 @@ app.layout = html.Div(
 
                 # ── Unified KPI overview ────────────────────────────
                 html.Div([
-                    html.Div([html.Span('OVERVIEW', className='dashboard-eyebrow'),
-                              html.H1('Slicing performance')]),
-                    html.Span('Team activity', className='dashboard-period-badge'),
-                ], className='dashboard-heading'),
-                html.Div(build_kpi_layout({}, {}, True), id="kpi-cards", className="kpi-overview-container mb-2"),
+                    html.Div(build_kpi_layout({}, {}, True), id="kpi-cards",
+                             className="kpi-overview-container"),
+                    dcc.Graph(id="universal-legend", figure=_initial_fig, config=_graph_cfg,
+                              responsive=True, className="glass-panel",
+                              style={"height": "260px"}),
+                ], className="dashboard-overview-row"),
 
                 dcc.Store(id="dashboard-today-submissions-evidence"),
-                # The completed lollipop now leads the dashboard. Its diamond
-                # marks completed + current pending-review video duration.
-                # Keep the clickable team filter adjacent to the chart.
+                html.Fieldset([
+                    html.Legend("Dashboard charts", className="visually-hidden"),
+                    dcc.RadioItems(
+                        id="dashboard-chart-view",
+                        options=[
+                            {"label": "Completed & submitted", "value": "completed"},
+                            {"label": "Rework & pending", "value": "matrices"},
+                            {"label": "Assigned work", "value": "assigned"},
+                            {"label": "Return reasons", "value": "reasons"},
+                        ],
+                        value="completed",
+                        inline=True,
+                    ),
+                ], className="dashboard-view-picker"),
+
                 html.Section([
                     dbc.Row([
                         dbc.Col(dcc.Graph(
-                            id="individual-chart", figure=_initial_fig,
-                            config=_graph_cfg, responsive=True,
-                            className="report-comparison-chart",
-                            style={"height": "300px", "width": "100%"},
-                        ), width=12, lg=9),
+                            id="individual-chart", figure=_initial_fig, config=_graph_cfg,
+                            responsive=True, className="glass-panel", style=_graph_style,
+                        ), width=12, lg=6),
                         dbc.Col(dcc.Graph(
-                            id="universal-legend", figure=_initial_fig,
-                            config=_graph_cfg, responsive=True,
-                            className="chart-compact",
-                            style={"height": "300px", "width": "100%"},
-                        ), width=12, lg=3),
+                            id="today-submissions-lollipop-chart", figure=_initial_fig,
+                            config=_graph_cfg, className="glass-panel", style=_graph_style,
+                        ), width=12, lg=6),
                     ], className="dashboard-completion-lead"),
-                ], className="glass-panel report-section dashboard-lead"),
-
-                dbc.Row([
-                    dbc.Col(dcc.Graph(id='today-submissions-lollipop-chart', figure=_initial_fig,
-                                      config=_graph_cfg, className='glass-panel',
-                                      style=_graph_style), width=12, lg=7),
-                    dbc.Col(dcc.Graph(id='review-workload-chart', figure=_initial_fig,
-                                      config=_graph_cfg, className='glass-panel',
-                                      style=_graph_style), width=12, lg=5),
-                ], className='dashboard-insights mb-2'),
+                ], className="dashboard-lead"),
 
                 # ── Stores & Intervals ───────────────────────────────
                 dcc.Store(id="selected-users-store", data=available_users),
@@ -299,44 +299,14 @@ app.layout = html.Div(
                         style=_graph_style,
                     ), width=12, lg=6),
                 ], className="dashboard-chart-row dashboard-matrix-row"),
-                html.Div([
-                # ── Chart row 3: Assigned & Rework by ID (Dynamic Height) ──
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            dcc.Graph(
-                                id="assigned-chart",
-                                figure=_initial_fig,
-                                config=_graph_cfg,
-                                className="glass-panel p-1 rounded shadow-sm chart-compact",
-                                style={"minHeight": "260px", "height": "auto"},
-                            ),
-                            width=12,
-                            className="mb-2 mb-lg-0",
-                        ),
-                    ],
-                    className="mb-2",
-                ),
-
-                # ── Chart row 4: Major Return Reasons by User ───────
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            html.Div([dcc.Graph(
-                                id="return-reasons-chart",
-                                figure=_initial_fig,
-                                config=_graph_cfg,
-                                className="glass-panel p-1 rounded shadow-sm chart-compact",
-                                style={"minHeight": "360px", "height": "auto"},
-                            )]),
-                            width=12,
-                            className="mb-2 mb-lg-0",
-                        ),
-                    ],
-                    className="mb-2",
-                ),
-
-                ], className="dashboard-bottom-grid"),
+                html.Div(dcc.Graph(
+                    id="assigned-chart", figure=_initial_fig, config=_graph_cfg,
+                    className="glass-panel", style=_graph_style,
+                ), className="dashboard-assigned"),
+                html.Div(dcc.Graph(
+                    id="return-reasons-chart", figure=_initial_fig, config=_graph_cfg,
+                    className="glass-panel", style={"height": "440px"},
+                ), className="dashboard-reasons"),
 
                 # ── Tabs + Table ─────────────────────────────────────
             ],
@@ -351,6 +321,11 @@ app.layout = add_reporting_shell(app.layout, today_iso(), report_users(
     dm.user_mapping, dm._snapshot_payload,
     mapping_records=list(getattr(dm, 'user_mapping_full', {}).values())))
 app.layout = contain_graphs(app.layout)
+app.clientside_callback(
+    "function(view) { return 'view-' + view; }",
+    Output("dashboard-page", "className"),
+    Input("dashboard-chart-view", "value"),
+)
 register_monthly_returns(app, dm, available_users)
 register_today_submissions(app, dm)
 

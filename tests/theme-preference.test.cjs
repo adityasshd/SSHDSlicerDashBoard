@@ -86,9 +86,12 @@ test('system changes repaint charts when there is no override', () => {
     assert.equal(JSON.stringify(app.props.at(-1)), JSON.stringify({id: 'theme-effective-count', value: {data: 1}}));
 });
 
-test('desktop compact layout retains all charts without hiding panels', () => {
+test('desktop detail selection is screen-only and preserves data-driven chart heights', () => {
     const css = fs.readFileSync(path.join(__dirname, '../src/slicing_dashboard/assets/style_v2.css'), 'utf8');
-    assert.match(css, /dashboard-bottom-grid/);
-    assert.match(css, /@media \(min-width: 1024px\) and \(orientation: landscape\)/);
-    assert.match(css, /height: clamp\(275px, 28dvh, 315px\)/);
+    const desktop = css.slice(css.indexOf('@media screen and (min-width: 1024px)'), css.indexOf('@page slicing-overview'));
+    for (const view of ['completed', 'matrices', 'assigned', 'reasons']) {
+        assert.ok(desktop.includes('#dashboard-page.view-' + view));
+    }
+    assert.doesNotMatch(css, /height:\s*(185|205|215)px !important/);
+    assert.match(css, /break-inside: avoid/);
 });

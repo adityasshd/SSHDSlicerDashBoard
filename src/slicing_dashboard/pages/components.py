@@ -227,7 +227,7 @@ def add_reporting_shell(existing_layout, today, users=()):
             size="lg",
             scrollable=True,
         ),
-        html.Div(dashboard, id="dashboard-page"),
+        html.Div(dashboard, id="dashboard-page", className="view-completed"),
         html.Div(
             layout_daily_report(today),
             id="daily-report-page",

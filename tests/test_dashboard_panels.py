@@ -382,7 +382,7 @@ def test_saved_assigned_panel_preserves_both_dates_and_return_color():
 
 
 @pytest.mark.parametrize('selected,expected', [(None, 9000), (['Riya'], 5400), ([], 0)])
-def test_review_overview_heatmap_and_donut_share_a_filtered_atomic_response(selected, expected):
+def test_review_overview_and_heatmap_share_a_filtered_atomic_response(selected, expected):
     from tests.test_daily_report_page import payload_text
     from slicing_dashboard.plots.theme import format_seconds
     namespace, _ = application_namespace()
@@ -396,11 +396,10 @@ def test_review_overview_heatmap_and_donut_share_a_filtered_atomic_response(sele
     packet = {**capture_panel(source, 'pending', request['start'], request['end']), 'request_id': request['id']}
     callback = next(value for key, value in namespace['app'].callback_map.items()
                     if 'dashboard-ready-pending.data' in key)['callback'].__wrapped__
-    matrix, _, overview, donut, _, _ = callback(request, packet, selected, 0, None, '/', None)
+    matrix, _, overview, _, _ = callback(request, packet, selected, 0, None, '/', None)
     assert format_seconds(expected) in payload_text(overview)
     if expected:
         assert matrix.layout.meta["grand_total"] * 3600 == expected
         assert matrix.layout.meta["column_totals"][-1] * 3600 == expected
-        assert sum(donut.data[0].values) == expected
     else:
-        assert not matrix.data and not donut.data
+        assert not matrix.data

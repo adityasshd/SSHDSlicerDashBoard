@@ -330,8 +330,6 @@ def _register_panel(app, manager, roster, kind):
                [Output(GRAPH_IDS[kind], 'figure'), Output(GRAPH_IDS[kind] + '-status', 'children'),
                 Output({'completion': 'kpi-approved-value', 'rework': 'kpi-rework-breakdown',
                         'assigned': 'kpi-assigned', 'pending': 'kpi-review'}[kind], 'children')])
-    if kind == 'pending':
-        outputs.append(Output('review-workload-chart', 'figure'))
     rework_input = [Input('rework-completion-state', 'value')] if kind == 'rework' else []
     rework_state = [State('rework-completion-state', 'value')] if kind == 'rework' else []
     pending_inputs = ([Input('dashboard-pending-request', 'data'),
@@ -392,22 +390,9 @@ def _register_panel(app, manager, roster, kind):
                                  completed_evidence=evidence,
                                  pending_request=pending_request,
                                  pending_saved=pending_saved, pending_live=pending_live)
-        result = (figure, visible_status(request, saved, live),
+        return (figure, visible_status(request, saved, live),
                   overview_values(kind, request, saved, live, selected, theme,
                                   completion_state, completed_evidence=evidence))
-        if kind == 'pending':
-            from slicing_dashboard.plots.overview_charts import build_review_workload_donut
-            packet, status = choose_packet(request, saved, live)
-            dark = (theme or 0) % 2 == 0
-            if packet:
-                frame = panel_frame(packet)
-                if selected is not None and 'User' in frame:
-                    frame = frame[frame['User'].isin(selected)]
-                donut = build_review_workload_donut(frame, dark)
-            else:
-                donut = state_figure(status, dark, 340)
-            return *result, donut
-        return result
 
     def render_safely(request, saved, live, selected, theme,
                       completion_state='Completed', saved_completion=None,
