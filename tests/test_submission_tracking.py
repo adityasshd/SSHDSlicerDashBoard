@@ -80,6 +80,8 @@ def test_events_survive_approval_restart_retry_and_rework_without_double_count(t
     checkpoint, events = transition_plan(checkpoint, [task('slice_submitted')], T2, T3, instance)
     store.save_many('submission-observation', events)
     store.save_many('submission-observation', events)  # retry after checkpoint failure
+    store.save_many('submission-observation', [{**events[0], 'id': 'earlier-day',
+                                               'display_date': '2026-11-24', 'duration_seconds': 9999}])
     store.save(checkpoint['id'], 'submission-tracking', checkpoint, replace=True)
     store = WorkflowStore(path=store.path)
     output = saved_observed_submissions(m, '2026-11-25', store=store)

@@ -157,6 +157,10 @@ def saved_observed_submissions(manager, day, selected=None, store=None):
         return {'available': False, 'reason': 'Submission tracking has no capture for today.'}
     grouped = defaultdict(lambda: {'submitted_total': 0., 'submitted_count': 0})
     for event in store.records('submission-observation', instance, start=day, end=day):
+        # SQL/local stores may return the whole kind/instance; enforce the
+        # date here too so yesterday can never leak into today's output.
+        if event.get('display_date') != day:
+            continue
         user = manager._get_reporting_name(event['user_id'], event.get('username'))
         if not reporting_user(user) or (selected is not None and user not in selected):
             continue
