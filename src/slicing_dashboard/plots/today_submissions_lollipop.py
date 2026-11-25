@@ -5,6 +5,7 @@ includes fresh, old rework and same-day rework; those subsets must not be added
 again to the plotted total. Never substitute screen time or batch-return counts.
 """
 from math import isfinite
+from slicing_dashboard.processing.daily_work import instant
 
 import plotly.graph_objects as go
 
@@ -40,6 +41,11 @@ def build_today_submissions_lollipop(output, is_dark=True):
     if not isinstance(rows, list) or not isinstance(values, dict):
         raise ValueError('Missing per-user submission video durations')
     classified = output.get('classification_available', True) is not False
+    observed = output.get('scope') == 'observed_submission_transitions'
+    since = instant(output.get('coverage_since')) if observed else None
+    captured = instant(output.get('capture')) if observed else None
+    coverage = (f'Recorded since {since:%H:%M} IST · Updated {captured:%H:%M} IST'
+                if since and captured else '')
     keys = (('submitted_total', 'new', 'old_rework', 'same_day_rework')
             if classified else ('submitted_total',))
     for key in keys:
@@ -61,7 +67,8 @@ def build_today_submissions_lollipop(output, is_dark=True):
         if classified and abs(submitted - new - old - same) > 0.05:
             raise ValueError('Submitted total does not reconcile to video-duration categories')
         parsed.append({'User': name, 'submitted': submitted,
-                       'new': new, 'old': old, 'same': same})
+                       'new': new, 'old': old, 'same': same,
+                       'count': row.get('submitted_count')})
 
     comparisons = (('submitted', 'submitted_total'), ('new', 'new'),
                    ('old', 'old_rework'), ('same', 'same_day_rework')) if classified else (
@@ -75,7 +82,8 @@ def build_today_submissions_lollipop(output, is_dark=True):
     # unchanged in metadata and all downstream calculations.
     parsed = [row for row in parsed if row['submitted'] > 0]
     if not parsed:
-        return state_figure('No submitted video hours for the selected users.',
+        return state_figure(('No submissions recorded for the selected users. ' + coverage)
+                            if observed else 'No submitted video hours for the selected users.',
                             is_dark, 390)
 
     parsed.sort(key=lambda row: (-row['submitted'], row['User'].casefold()))
@@ -102,13 +110,17 @@ def build_today_submissions_lollipop(output, is_dark=True):
         customdata=[[user, format_seconds(value),
                      format_seconds(row['old'] + row['same']) if classified
                      else 'Not verified in this snapshot',
-                     format_seconds(row['new']) if classified else 'Not verified']
+                     format_seconds(row['new']) if classified else 'Not verified', row['count']]
                     for user, value, row in zip(users, totals, parsed)],
         hovertemplate=(
             '<b>%{customdata[0]}</b><br>Submitted video: %{customdata[1]}'
             '<br>Fresh videos: %{customdata[3]}'
             '<br>Rework included: %{customdata[2]}<extra></extra>'
         ) if classified else (
+            '<b>%{customdata[0]}</b><br>Recorded submitted video: %{customdata[1]}'
+            '<br>Tasks: %{customdata[4]}<br>' + coverage +
+            '<br>Partial day · Rework split unavailable<extra></extra>'
+        ) if observed else (
             '<b>%{customdata[0]}</b><br>Submitted-status video: %{customdata[1]}'
             '<br>NOT confirmed as submitted today'
             '<br>Rework classification unavailable<extra></extra>'
@@ -146,6 +158,7 @@ def build_today_submissions_lollipop(output, is_dark=True):
     ticks, ticklabels = duration_ticks(0, upper)
     fig.update_layout(
         title={'text': ("Today's submitted video duration" if classified
+                        else "Recorded submissions today" if observed
                         else "Submitted-status video duration") + ' · ' + str(output['date'])},
         template=theme['template'], height=max(390, 390 + max(0, len(users) - 9) * 10),
         paper_bgcolor=theme['bg_color'], plot_bgcolor=theme['bg_color'],
@@ -162,7 +175,7 @@ def build_today_submissions_lollipop(output, is_dark=True):
                'fixedrange': True, 'zeroline': True, 'automargin': True},
         hovermode='closest', uirevision='today-video-hours-v2',
         meta={
-            'metric': 'dated_submitted_video_duration',
+            'metric': 'observed_submission_transitions' if observed else 'dated_submitted_video_duration',
             'unit': 'video_hours',
             'date': output['date'],
             'submitted_seconds': values['submitted_total'],
@@ -170,11 +183,18 @@ def build_today_submissions_lollipop(output, is_dark=True):
             'old_rework_seconds': values.get('old_rework'),
             'same_day_rework_seconds': values.get('same_day_rework'),
             'classification_available': classified,
-            'stock_not_daily_events': not classified,
+            'stock_not_daily_events': not classified and not observed,
             'rework_is_subset': True if classified else None,
             'screen_time_included': False,
             'source': output.get('source'),
             'partial': bool(output.get('reconciliation_pending')),
+            'coverage_since': output.get('coverage_since'),
+            'captured_at': output.get('capture'),
+            'submitted_tasks': sum(row['count'] or 0 for row in parsed) if observed else None,
         },
     )
+    if observed and coverage:
+        fig.add_annotation(text=coverage + ' · Partial day', xref='paper', yref='paper',
+                           x=0, y=1.04, showarrow=False, xanchor='left',
+                           font={'size': 10, 'color': theme['font_color']})
     return fig

@@ -14,7 +14,7 @@ from slicing_dashboard.processing.workflow_history import WorkflowStore
 from slicing_dashboard.runtime import viewer_mode
 
 
-SOURCES = ('configuration', 'daily', 'overview', 'efficiency', 'assignable_pool', 'assignments',
+SOURCES = ('configuration', 'submissions', 'daily', 'overview', 'efficiency', 'assignable_pool', 'assignments',
            'rework', 'pending_review', 'batches', 'returns', 'completion', 'chart_panels', 'workflow')
 HEALTH_MAX_AGE_SECONDS = 600  # Two missed five-minute runs.
 LEASE_SECONDS = 330  # Outlives a 300-second function; the next run can retry a killed job.
@@ -94,7 +94,9 @@ class DataHealth:
             # Later approvals change the completion status of earlier source
             # dates. Keep the default trend and current settlement up to date.
             trend_start = (date.fromisoformat(today) - timedelta(days=29)).isoformat()
-            manager.capture_efficiency_history(min(start, trend_start), today, force_refresh=True)
+            from slicing_dashboard.reporting.submission_tracking import START_DATE
+            history_start = max(min(start, trend_start), START_DATE) if today >= START_DATE else min(start, trend_start)
+            manager.capture_efficiency_history(history_start, today, force_refresh=True)
 
         def pending():
             if manager.get_pending_review_df(force_refresh=True).attrs.get('pending_error'):
@@ -130,7 +132,9 @@ class DataHealth:
             # Match the dashboard's selected period, including its future boundary.
             manager.prepare_dashboard_panels(start, period['end_date'] if period else end)
 
+        from slicing_dashboard.reporting.submission_tracking import START_DATE, capture_submissions
         return {'configuration': configuration, 'daily': daily,
+                'submissions': lambda: capture_submissions(manager) if today >= START_DATE else None,
                 'overview': overview, 'efficiency': efficiency,
                 'assignable_pool': pool,
                 'assignments': lambda: manager._current_task_stats('slice_assigned', True),
