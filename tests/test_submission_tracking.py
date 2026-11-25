@@ -106,3 +106,20 @@ def test_capture_publishes_no_checkpoint_after_failed_inventory(tmp_path):
             capture_submissions(m, store)
     assert store.get(tracking_instance(m) + ':checkpoint') is None
     assert store.records('submission-observation') == []
+
+
+def test_busy_peer_can_supply_only_a_recent_successful_capture(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    m, store = manager(), WorkflowStore(path=tmp_path / 'tracking.sqlite3')
+    instance = tracking_instance(m)
+    assert store.acquire_lease(instance + ':lease', 'peer', 60)
+    recent = datetime.now(timezone.utc).isoformat()
+    payload = {'captured_at': recent, 'coverage_since': recent}
+    store.save(instance + ':checkpoint', 'submission-tracking', payload, replace=True)
+    with patch('slicing_dashboard.reporting.submission_tracking.fetch_inventory') as fetch:
+        assert capture_submissions(m, store)['reused_peer_capture'] is True
+        fetch.assert_not_called()
+    payload['captured_at'] = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    store.save(instance + ':checkpoint', 'submission-tracking', payload, replace=True)
+    with pytest.raises(RuntimeError, match='already running'):
+        capture_submissions(m, store)
