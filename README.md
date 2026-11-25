@@ -1,5 +1,9 @@
 # SSHDSlicerDashBoard
 
+Submission recording starts on **25 November 2026**. The Dashboard shows retained
+task transitions from the first successful capture when full submission history
+is unavailable. See [tracking, coverage and historical archives](docs/submission-tracking-from-today.md).
+
 ## Vercel deployment (saved-data dashboard)
 
 The `main` branch deploys a Python **3.12** Flask/Dash viewer on Vercel. It reads

@@ -12,6 +12,8 @@ from slicing_dashboard.reporting.daily_output import (
     select_submitted_status_snapshot,
 )
 
+from slicing_dashboard.reporting.submission_tracking import START_DATE, saved_observed_submissions
+
 log = logging.getLogger(__name__)
 
 
@@ -77,13 +79,15 @@ def register_today_submissions(app, manager):
         # submitted-status stock line, with NO inferred rework lollipops.
         if not submitted_video_output(day, expected_date=today_iso()).get('available'):
             try:
-                fallback = _saved_submitted_status(manager, today_iso())
+                fallback = (saved_observed_submissions(manager, today_iso())
+                            if today_iso() >= START_DATE else
+                            _saved_submitted_status(manager, today_iso()))
                 if fallback.get('available'):
                     day = {**day, 'submitted_status_snapshot': fallback}
             except Exception:
                 # Optional status-inventory fallback cannot break the daily
                 # report callback if a replica, pool or archived read fails.
-                log.exception('Submitted-status fallback capture failed')
+                log.exception('Saved submission observation read failed')
         return day
 
     @app.callback(
