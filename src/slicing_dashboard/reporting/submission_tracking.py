@@ -128,6 +128,14 @@ def capture_submissions(manager, store=None):
     owner = hashlib.sha256(str(datetime.now(timezone.utc)).encode()).hexdigest()
     lease = instance + ':lease'
     if not store.acquire_lease(lease, owner, 600):
+        # Scheduled and local polling may overlap. A recent successful peer
+        # capture already satisfies this source; never bypass its active lease.
+        saved = store.get(instance + ':checkpoint')
+        if saved and saved.get('captured_at'):
+            age = (datetime.now(timezone.utc) - instant(saved['captured_at'])).total_seconds()
+            if 0 <= age <= 120:
+                return {'captured_at': saved['captured_at'], 'coverage_since': saved['coverage_since'],
+                        'scanned_tasks': 0, 'observed_transitions': 0, 'reused_peer_capture': True}
         raise RuntimeError('Submission tracking is already running')
     try:
         started = monotonic()
